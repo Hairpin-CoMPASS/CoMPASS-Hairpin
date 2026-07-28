@@ -1,4 +1,4 @@
-name: compass-labyrinth
+name: compass-hairpin
 channels:
   - conda-forge
   - defaults

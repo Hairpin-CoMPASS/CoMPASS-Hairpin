@@ -28,7 +28,7 @@ warnings.filterwarnings("ignore")
 ###################################################################
 def assign_bout_indices(
     df: pd.DataFrame,
-    delimiter_node: int = 47,
+    delimiter_node: int = 0,
 ) -> pd.DataFrame:
     """
     Assign bout indices to each row in the dataframe based on delimiter nodes.

@@ -15,8 +15,9 @@ from sklearn.preprocessing import RobustScaler, QuantileTransformer
 import seaborn as sns
 import matplotlib.pyplot as plt
 from statsmodels.formula.api import ols
-import matplotlib.pyplot as plt
 from math import ceil, sqrt
+
+from .success_metrics import assign_bout_indices_from_entry_node, assign_bout_indices_from_entry_zone
 
 
 ##################################################################
@@ -59,39 +60,7 @@ def ensure_velocity_column(
     return df
 
 
-def assign_bout_indices_from_entry_node(df: pd.DataFrame, delimiter_node: int = 47) -> pd.DataFrame:
-    """
-    Assigns bout indices to each row in the DataFrame based on the occurrence of a delimiter node.
-
-    Parameters
-    -----------
-    df : pd.DataFrame
-        Input DataFrame.
-    delimiter_node : int
-        The grid number that serves as the delimiter for new bouts.
-
-    Returns
-    --------
-    pd.DataFrame
-        DataFrame with assigned bout indices.
-    """
-    df = df.copy()
-    all_sessions = []
-    for _, session_data in df.groupby("session"):
-        session_data = session_data.reset_index(drop=True).copy()
-        session_data["bout_id"] = 0
-        bout_counter = 1
-        for row_idx in range(len(session_data)):
-            if session_data.loc[row_idx, "grid_number"] != delimiter_node:
-                session_data.loc[row_idx, "bout_id"] = bout_counter
-            else:
-                session_data.loc[row_idx, "bout_id"] = 0
-                bout_counter += 1
-        all_sessions.append(session_data)
-    return pd.concat(all_sessions, ignore_index=True)
-
-
-def ensure_bout_indices(df: pd.DataFrame, delimiter_node: int = 47) -> pd.DataFrame:
+def ensure_bout_indices(df: pd.DataFrame, delimiter_node: int | list = 0) -> pd.DataFrame:
     """
     Ensure Bout indices exist.
 
@@ -99,8 +68,12 @@ def ensure_bout_indices(df: pd.DataFrame, delimiter_node: int = 47) -> pd.DataFr
     -----------
     df : pd.DataFrame
         Input DataFrame.
-    delimiter_node : int
-        The grid number that serves as the delimiter for new bouts.
+    delimiter_node : int | list
+        The grid number(s) that serve as the delimiter for new bouts. Pass a
+        list (e.g. constants.ENTRY_ZONE) to mark a boundary on any of
+        several nodes rather than one exact node -- see
+        assign_bout_indices_from_entry_zone() for why that matters when the
+        entry zone is small relative to tracking sparsity.
 
     Returns
     --------
@@ -108,6 +81,8 @@ def ensure_bout_indices(df: pd.DataFrame, delimiter_node: int = 47) -> pd.DataFr
         DataFrame with ensured bout indices.
     """
     if "bout_id" not in df.columns:
+        if isinstance(delimiter_node, list):
+            return assign_bout_indices_from_entry_zone(df, delimiter_node)
         return assign_bout_indices_from_entry_node(df, delimiter_node)
     return df.copy()
 

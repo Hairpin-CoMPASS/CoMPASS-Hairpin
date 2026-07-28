@@ -742,7 +742,7 @@ def batch_get_boundary_and_cropping(
 
         # Skip if both exist and not reprocessing
         if boundary_exists and cropping_exists and not reprocess_existing:
-            print(f"✓ {session_name} already has boundary and cropping data - skipping")
+            print(f"[OK] {session_name} already has boundary and cropping data - skipping")
             results_dict["skipped_sessions"].append(session_name)
             continue
 
@@ -780,10 +780,10 @@ def batch_get_boundary_and_cropping(
             results_dict["boundary_points"][session_name] = boundary_points
             results_dict["cropping_coords"][session_name] = cropping_coords
             results_dict["successful_sessions"].append(session_name)
-            print(f"✓ Boundary and cropping data saved for {session_name}")
+            print(f"[OK] Boundary and cropping data saved for {session_name}")
         else:
             results_dict["failed_sessions"].append(session_name)
-            print(f"✗ Skipped {session_name}")
+            print(f"[FAIL] Skipped {session_name}")
 
             # Ask if user wants to continue
             continue_choice = input("Continue with next session? (y/n): ").strip().lower()
@@ -820,12 +820,12 @@ def check_preprocessing_status(source_data_path, video_type=".mp4"):
 
     Use Cases:
     ----------
-    1. Videos + Grids → Ready for init_project() (DLC data already in grids)
-    2. Videos + DLC + Grids → Ready for init_project()
-    3. Grids only (withGrids.csv files) → Ready for init_project()
-    4. Videos only → Switch to DLC env, run 00_dlc_grid_processing.ipynb (full pipeline)
-    5. Videos + DLC (no grids) → Run run_grid_preprocessing() in 01_create_project.ipynb
-    6. DLC only (no videos/grids) → Get videos, then run run_grid_preprocessing() in 01_create_project.ipynb
+    1. Videos + Grids -> Ready for init_project() (DLC data already in grids)
+    2. Videos + DLC + Grids -> Ready for init_project()
+    3. Grids only (withGrids.csv files) -> Ready for init_project()
+    4. Videos only -> Switch to DLC env, run 00_dlc_grid_processing.ipynb (full pipeline)
+    5. Videos + DLC (no grids) -> Run run_grid_preprocessing() in 01_create_project.ipynb
+    6. DLC only (no videos/grids) -> Get videos, then run run_grid_preprocessing() in 01_create_project.ipynb
 
     Parameters
     -----------
@@ -886,7 +886,7 @@ def check_preprocessing_status(source_data_path, video_type=".mp4"):
             _validate_complete_preprocessing(source_data_path, all_grid_files, require_dlc=False)
 
         print("=" * 70)
-        print("✓ STATUS: READY FOR INIT_PROJECT")
+        print("[OK] STATUS: READY FOR INIT_PROJECT")
         print("=" * 70)
 
         # Provide appropriate status message
@@ -1142,7 +1142,7 @@ def _validate_complete_preprocessing(source_data_path, grid_files, require_dlc=T
         )
         raise FileNotFoundError(error_msg)
 
-    print(f"✓ Validated all required files for {len(session_names)} sessions")
+    print(f"[OK] Validated all required files for {len(session_names)} sessions")
 
 
 def prepare_dlc_analysis(mouseinfo_df, video_directory, cropping_directory, results_directory):
@@ -1306,6 +1306,109 @@ def get_grid_coordinates(posList, num_squares, grid_files_directory, session, cr
     return grid
 
 
+def create_grid_from_crop_bounds(session, X1, X2, Y1, Y2, grid_files_directory, num_squares=12):
+    """
+    Create and save a grid directly from already-known crop bounds, skipping
+    the interactive boundary-click step entirely.
+
+    Use this instead of batch_create_grids() whenever (X1, X2, Y1, Y2) are
+    already known for a session -- e.g. recovered from a metadata sheet for a
+    dataset where DLC tracking and cropping were already done elsewhere --
+    rather than requiring get_labyrinth_boundary_and_cropping() to have been
+    run first.
+
+    Parameters
+    -----------
+    session : str
+        Session identifier; the grid is saved as f"{session}_grid.shp".
+        Does not need to follow any particular naming convention -- pass
+        whatever identifier links this grid back to the session's tracking
+        data (e.g. a folder name like "Mouse_1071_Trial_3").
+    X1, X2, Y1, Y2 : int
+        Crop bounds in the original (uncropped) video frame.
+    grid_files_directory : str or Path
+        Directory to save the grid shapefile.
+    num_squares : int, optional
+        Number of squares per side (default: 12).
+
+    Returns
+    --------
+    gpd.GeoDataFrame
+        Grid as geopandas dataframe, aligned to the cropped-frame coordinate
+        system (i.e. matching tracking data produced by DLC run on a video
+        already cropped to these bounds).
+    """
+    import numpy as np
+
+    posList = np.array([[X1, Y1], [X1, Y2], [X2, Y2], [X2, Y1]])
+    return get_grid_coordinates(
+        posList=posList,
+        num_squares=num_squares,
+        grid_files_directory=grid_files_directory,
+        session=session,
+        cropping_coords=(X1, X2, Y1, Y2),
+    )
+
+
+def assign_grid_numbers(x, y, grid):
+    """
+    Assign a grid_number (cell index) to each (x, y) position via spatial join.
+
+    Use this instead of append_grid_numbers_to_csv() whenever tracking
+    positions are already available as plain x/y arrays -- e.g. pre-extracted
+    per-bodypart .npy files from another pipeline -- rather than needing to
+    parse a specific DLC results CSV/bodypart-column layout.
+
+    Parameters
+    -----------
+    x, y : array-like
+        Tracked x/y coordinates, same coordinate system as the grid (i.e.
+        cropped-frame coordinates if the grid was built with cropping_coords).
+        NaN values are treated as untracked and get grid_number = NaN.
+    grid : gpd.GeoDataFrame
+        Grid polygons, e.g. from get_grid_coordinates() or
+        create_grid_from_crop_bounds(), or loaded from a saved grid shapefile.
+
+    Returns
+    --------
+    pd.Series
+        grid_number per position (float, with NaN where the position falls
+        outside every grid cell or was untracked), same length/index as x/y.
+    """
+    import numpy as np
+    import pandas as pd
+    from shapely.geometry import Point
+
+    x = np.asarray(x, dtype=float)
+    y = np.asarray(y, dtype=float)
+    points = [Point(xi, yi) if np.isfinite(xi) and np.isfinite(yi) else None for xi, yi in zip(x, y)]
+    pnt_gpd = gpd.GeoDataFrame(geometry=points, index=np.arange(len(points)), crs=grid.crs)
+
+    joined = gpd.tools.sjoin(pnt_gpd, grid, predicate="within", how="left")
+    # In-memory grids (not yet saved/reloaded from a shapefile) have no "FID"
+    # column -- geopandas' sjoin index instead falls back to "index_right".
+    grid_number = joined["FID"] if "FID" in joined.columns else joined["index_right"]
+    return pd.Series(grid_number.values, name="grid_number")
+
+
+_DEFAULT_ADJACENCY_MATRIX = None
+
+
+def _load_default_adjacency_matrix():
+    """
+    Load the packaged 3-step-tolerance adjacency matrix by file path rather
+    than importing compass_labyrinth.constants -- dlc_utils.py is commonly
+    imported standalone via sys.path (e.g. from the DLC-analysis conda env,
+    which doesn't have compass_labyrinth installed), so it can't rely on the
+    package being importable.
+    """
+    global _DEFAULT_ADJACENCY_MATRIX
+    if _DEFAULT_ADJACENCY_MATRIX is None:
+        matrix_path = Path(__file__).resolve().parents[2] / "data" / "3step_adjacency_matrix.csv"
+        _DEFAULT_ADJACENCY_MATRIX = pd.read_csv(matrix_path)
+    return _DEFAULT_ADJACENCY_MATRIX
+
+
 def batch_create_grids(mouseinfo_df, boundaries_directory, grid_files_directory, cropping_directory, num_squares=12):
     """
     Create grids for multiple sessions using saved boundary coordinates.
@@ -1414,7 +1517,7 @@ def batch_create_grids(mouseinfo_df, boundaries_directory, grid_files_directory,
 
             grid_summary["grids_created"] += 1
             grid_summary["created_sessions"].append(session_name)
-            print(f"✓ Grid created for {session_name}")
+            print(f"[OK] Grid created for {session_name}")
 
         except Exception as e:
             print(f"Error creating grid for {session_name}: {e}")
@@ -1472,6 +1575,7 @@ def create_grid_scatter_plot(
     figure_size=(3, 3),
     save_plot=True,
     figures_directory=None,
+    rotate_180=False,
 ):
     """
     Create a scatter plot of DLC tracking points overlaid on the grid for a single session.
@@ -1496,6 +1600,12 @@ def create_grid_scatter_plot(
         Whether to save the plot (default: True)
     figures_directory : str or Path, optional
         Directory to save figures (required if save_plot=True)
+    rotate_180 : bool, optional
+        If True, rotate tracked (x, y) coordinates 180 degrees within the
+        cropped frame before plotting -- use when the camera's physical
+        orientation is upside-down/mirrored relative to the maze layout
+        (see append_grid_numbers_to_csv()). Keeps the trajectory aligned
+        with the grid/target-zone overlay, which doesn't need to change.
 
     Returns
     --------
@@ -1544,13 +1654,18 @@ def create_grid_scatter_plot(
     # Plot the grid boundary
     grid.boundary.plot(ax=ax, color="black", linewidth=0.5)
 
-    # Color grid # 84 green
-    grid.loc[grid["FID"] == 84, "geometry"].plot(ax=ax, color="green", alpha=0.5)
+    # Color target-zone cells green
+    grid.loc[grid["FID"].isin([70, 71, 80, 81]), "geometry"].plot(ax=ax, color="green", alpha=0.5)
 
     # Filter points by likelihood threshold
     likelihood_mask = df[dlc_scorer][bodypart]["likelihood"].values > likelihood_threshold
     x_coords = df[dlc_scorer][bodypart]["x"].values[likelihood_mask]
     y_coords = df[dlc_scorer][bodypart]["y"].values[likelihood_mask]
+
+    if rotate_180:
+        _, _, frame_width, frame_height = grid.total_bounds
+        x_coords = frame_width - x_coords
+        y_coords = frame_height - y_coords
 
     # Plot the scatter points
     ax.plot(x_coords, y_coords, ".", color="blue", alpha=0.1)
@@ -1603,6 +1718,7 @@ def batch_create_grid_scatter_plots(
     likelihood_threshold=0.6,
     figure_size=(3, 3),
     show_plots=False,
+    rotate_180=False,
 ):
     """
     Create grid scatter plots for multiple sessions.
@@ -1627,6 +1743,9 @@ def batch_create_grid_scatter_plots(
         Figure size (default: (3, 3))
     show_plots : bool, optional
         Whether to display plots (default: False for batch processing)
+    rotate_180 : bool, optional
+        See create_grid_scatter_plot() -- rotates tracked coordinates 180
+        degrees within the cropped frame before plotting.
 
     Returns
     --------
@@ -1676,6 +1795,7 @@ def batch_create_grid_scatter_plots(
                 figure_size=figure_size,
                 save_plot=True,
                 figures_directory=scatter_plots_dir,
+                rotate_180=rotate_180,
             )
 
             if fig is not None:
@@ -1688,11 +1808,11 @@ def batch_create_grid_scatter_plots(
                 else:
                     plt.close(fig)  # Close to save memory
 
-                print(f"✓ Plot created for {session_name}")
+                print(f"[OK] Plot created for {session_name}")
             else:
                 plot_summary["failed_plots"] += 1
                 plot_summary["failed_sessions"].append(session_name)
-                print(f"✗ Failed to create plot for {session_name}")
+                print(f"[FAIL] Failed to create plot for {session_name}")
 
         except Exception as e:
             print(f"Error creating plot for {session_name}: {e}")
@@ -1731,6 +1851,8 @@ def create_trajectory_plot(
     colormap="viridis",
     save_plot=True,
     figures_directory=None,
+    rotate_180=False,
+    adjacency_matrix=None,
 ):
     """
     Create a trajectory plot showing the path of movement with color-coded time progression.
@@ -1755,8 +1877,16 @@ def create_trajectory_plot(
         Colormap for trajectory (default: 'viridis')
     save_plot : bool, optional
         Whether to save the plot (default: True)
+    rotate_180 : bool, optional
+        See create_grid_scatter_plot() -- rotates tracked coordinates 180
+        degrees within the cropped frame before plotting.
     figures_directory : str or Path, optional
         Directory to save figures
+    adjacency_matrix : pd.DataFrame, optional
+        Grid-to-grid reachability matrix used to validate frame-to-frame
+        transitions (same one preprocess_sessions() uses via
+        remove_invalid_grid_transitions()). Defaults to the packaged
+        3-step-tolerance matrix if not provided.
 
     Returns
     --------
@@ -1800,34 +1930,70 @@ def create_trajectory_plot(
         print(f"Available bodyparts: {list(available_bodyparts)}")
         return None
 
-    # Filter points by likelihood threshold
-    likelihood_mask = df[dlc_scorer][bodypart]["likelihood"].values > likelihood_threshold
-    x_cut = df[dlc_scorer][bodypart]["x"].values[likelihood_mask]
-    y_cut = df[dlc_scorer][bodypart]["y"].values[likelihood_mask]
+    # Mark points below the likelihood threshold as gaps (NaN) instead of
+    # dropping them. Dropping collapses the array and joins frames that
+    # weren't temporally adjacent, drawing a straight line across whatever
+    # was removed -- e.g. a mouse retreating out of frame to a hidden home
+    # chamber. Keeping NaNs at their original frame position lets the line
+    # break naturally at the gap instead of bridging it.
+    likelihood = df[dlc_scorer][bodypart]["likelihood"].values
+    likelihood_mask = likelihood > likelihood_threshold
+    x_cut = np.where(likelihood_mask, df[dlc_scorer][bodypart]["x"].values, np.nan)
+    y_cut = np.where(likelihood_mask, df[dlc_scorer][bodypart]["y"].values, np.nan)
 
-    if len(x_cut) < 2:
-        print(f"Error: Not enough valid points for trajectory (only {len(x_cut)} points)")
+    if rotate_180:
+        _, _, frame_width, frame_height = grid.total_bounds
+        x_cut = frame_width - x_cut
+        y_cut = frame_height - y_cut
+
+    n_valid = int(likelihood_mask.sum())
+    if n_valid < 2:
+        print(f"Error: Not enough valid points for trajectory (only {n_valid} points)")
         return None
 
-    # Create time parameter for color coding
+    # Assign each (rotated) position to a grid cell, then use the maze's
+    # adjacency matrix to keep only frame-to-frame transitions that are
+    # actually reachable through the corridor. A likelihood filter alone
+    # can't tell a real jump apart from DLC confidently latching onto the
+    # wrong spot for a frame or two (e.g. a reflection across a wall) --
+    # both look like a "valid" high-likelihood point, but only one of them
+    # is a transition the maze topology allows.
+    if adjacency_matrix is None:
+        adjacency_matrix = _load_default_adjacency_matrix()
+    grid_number = assign_grid_numbers(x_cut, y_cut, grid).values.astype(float)
+
+    from_node = grid_number[:-1]
+    to_node = grid_number[1:]
+    both_tracked = ~np.isnan(from_node) & ~np.isnan(to_node)
+
+    adj_array = adjacency_matrix.values
+    seg_valid = np.zeros(len(from_node), dtype=bool)
+    idx = np.where(both_tracked)[0]
+    seg_valid[idx] = adj_array[from_node[idx].astype(int), to_node[idx].astype(int)] == 1
+
+    # Create time parameter for color coding (over the full session, so
+    # segment color still reflects true elapsed time even with gaps)
     t = np.linspace(0, 1, x_cut.shape[0])
 
-    # Create line segments for trajectory
+    # Create line segments for trajectory, keeping only the transitions
+    # the maze topology allows
     points = np.array([x_cut, y_cut]).transpose().reshape(-1, 1, 2)
     segs = np.concatenate([points[:-1], points[1:]], axis=1)
+    segs = segs[seg_valid]
+    t_segs = t[:-1][seg_valid]
 
     # Create the plot
     fig, ax = plt.subplots(figsize=figure_size)
 
     # Create line collection for trajectory
     lc = LineCollection(segs, cmap=plt.get_cmap(colormap), linewidths=1)
-    lc.set_array(t)  # Color segments by time
+    lc.set_array(t_segs)  # Color segments by time
 
     # Add trajectory to plot
     lines = ax.add_collection(lc)
 
-    # Add scatter points
-    ax.scatter(points[:, :, 0], points[:, :, 1])
+    # Add scatter points (NaN entries are skipped automatically)
+    ax.scatter(x_cut, y_cut)
 
     # Plot grid boundary
     grid.boundary.plot(ax=ax, color="red")
@@ -1865,6 +2031,8 @@ def batch_create_trajectory_plots(
     figure_size=(4, 4),
     colormap="viridis",
     show_plots=False,
+    rotate_180=False,
+    adjacency_matrix=None,
 ):
     """
     Create trajectory plots for multiple sessions.
@@ -1891,6 +2059,12 @@ def batch_create_trajectory_plots(
         Colormap for trajectory (default: 'viridis')
     show_plots : bool, optional
         Whether to display plots (default: False)
+    rotate_180 : bool, optional
+        See create_grid_scatter_plot() -- rotates tracked coordinates 180
+        degrees within the cropped frame before plotting.
+    adjacency_matrix : pd.DataFrame, optional
+        See create_trajectory_plot() -- validates frame-to-frame
+        transitions against the maze's reachability matrix.
 
     Returns
     --------
@@ -1937,6 +2111,8 @@ def batch_create_trajectory_plots(
                 colormap=colormap,
                 save_plot=True,
                 figures_directory=trajectory_plots_dir,
+                rotate_180=rotate_180,
+                adjacency_matrix=adjacency_matrix,
             )
 
             if fig is not None:
@@ -1949,11 +2125,11 @@ def batch_create_trajectory_plots(
                 else:
                     plt.close(fig)  # Close to save memory
 
-                print(f"✓ Trajectory plot created for {session_name}")
+                print(f"[OK] Trajectory plot created for {session_name}")
             else:
                 plot_summary["failed_plots"] += 1
                 plot_summary["failed_sessions"].append(session_name)
-                print(f"✗ Failed to create trajectory plot for {session_name}")
+                print(f"[FAIL] Failed to create trajectory plot for {session_name}")
 
         except Exception as e:
             print(f"Error creating trajectory plot for {session_name}: {e}")
@@ -1983,6 +2159,7 @@ def append_grid_numbers_to_csv(
     dlc_scorer,
     bodyparts=["nose", "belly", "sternum", "leftflank", "rightflank", "tailbase"],
     save_directory=None,
+    rotate_180=False,
 ):
     """
     Append grid numbers to DLC CSV results for a single session.
@@ -2001,6 +2178,12 @@ def append_grid_numbers_to_csv(
         List of bodyparts to process
     save_directory : str or Path, optional
         Directory to save annotated CSV (defaults to dlc_results_directory)
+    rotate_180 : bool, optional
+        If True, rotate tracked (x, y) coordinates 180 degrees within the
+        cropped frame before assigning grid numbers -- use when the camera's
+        physical orientation is upside-down/mirrored relative to the maze
+        layout assumed by constants.py, so the grid/topology itself doesn't
+        need to change, just how raw tracked positions map onto it.
 
     Returns
     --------
@@ -2049,12 +2232,21 @@ def append_grid_numbers_to_csv(
         print(f"Error: None of the specified bodyparts found in data")
         return None
 
+    if rotate_180:
+        # Grid is built in cropped-frame coordinates with origin at (0,0),
+        # so its own bounds give the cropped width/height directly.
+        _, _, frame_width, frame_height = grid.total_bounds
+
     # Process each bodypart
     for bp in valid_bodyparts:
         try:
             # Convert x and y coordinates to geometry points
             x_coords = df[dlc_scorer][bp]["x"].values
             y_coords = df[dlc_scorer][bp]["y"].values
+
+            if rotate_180:
+                x_coords = frame_width - x_coords
+                y_coords = frame_height - y_coords
 
             # Create points, handling NaN values
             points = []
@@ -2109,6 +2301,7 @@ def batch_append_grid_numbers(
     dlc_scorer,
     bodyparts=["nose", "belly", "sternum", "leftflank", "rightflank", "tailbase"],
     save_directory=None,
+    rotate_180=False,
 ):
     """
     Append grid numbers to DLC CSV results for multiple sessions.
@@ -2127,6 +2320,9 @@ def batch_append_grid_numbers(
         List of bodyparts to process
     save_directory : str or Path, optional
         Directory to save annotated CSVs (defaults to dlc_results_directory)
+    rotate_180 : bool, optional
+        See append_grid_numbers_to_csv() -- rotates tracked coordinates 180
+        degrees within the cropped frame before grid assignment.
 
     Returns
     --------
@@ -2153,8 +2349,10 @@ def batch_append_grid_numbers(
         "total_sessions": len(mouseinfo_df),
         "successfully_annotated": 0,
         "failed_annotation": 0,
+        "skipped_existing": 0,
         "successful_sessions": [],
         "failed_sessions": [],
+        "skipped_sessions": [],
     }
 
     # Process each session
@@ -2164,6 +2362,9 @@ def batch_append_grid_numbers(
         grid_numbers_file = save_directory / f"{session_name}_withGrids.csv"
 
         if grid_numbers_file.exists():
+            annotation_summary["skipped_existing"] += 1
+            annotation_summary["skipped_sessions"].append(session_name)
+            print(f"Grid annotation already exists for {session_name}, skipping...")
             continue
 
         try:
@@ -2175,6 +2376,7 @@ def batch_append_grid_numbers(
                 dlc_scorer=dlc_scorer,
                 bodyparts=bodyparts,
                 save_directory=save_directory,
+                rotate_180=rotate_180,
             )
 
             if annotated_df is not None:
@@ -2268,7 +2470,7 @@ def run_grid_preprocessing(
     print("\nLoading metadata...")
     mouseinfo_full = import_cohort_metadata(metadata_path=user_metadata_file_path, trial_sheet_name=trial_type)
     validate_metadata(mouseinfo_full)
-    print(f"✓ Loaded {len(mouseinfo_full)} sessions from metadata")
+    print(f"[OK] Loaded {len(mouseinfo_full)} sessions from metadata")
 
     # Filter metadata to only include sessions with files in source_data_path
     print("\nFiltering to sessions in source_data_path...")
@@ -2305,7 +2507,7 @@ def run_grid_preprocessing(
     # Create filtered metadata dataframe
     mouseinfo = mouseinfo_full.loc[sessions_in_directory].copy()
 
-    print(f"✓ Found {len(mouseinfo)} sessions in directory (filtered from {len(mouseinfo_full)} total)\n")
+    print(f"[OK] Found {len(mouseinfo)} sessions in directory (filtered from {len(mouseinfo_full)} total)\n")
 
     if len(mouseinfo) < len(mouseinfo_full):
         print("Sessions to process:")
@@ -2344,7 +2546,7 @@ def run_grid_preprocessing(
 
     # Check if everything is already done
     if not any([frames_needed, boundaries_needed, cropping_needed, grids_needed, grid_numbers_needed]):
-        print("✓ All preprocessing outputs already exist!")
+        print("[OK] All preprocessing outputs already exist!")
         if not reprocess_existing:
             print("  Use reprocess_existing=True to regenerate outputs.")
         print("=" * 70)
@@ -2407,7 +2609,7 @@ def run_grid_preprocessing(
         results["grid_numbers"] = grid_number_results
 
     print("=" * 70)
-    print("✓ PREPROCESSING COMPLETE")
+    print("[OK] PREPROCESSING COMPLETE")
     print("=" * 70)
     print(f"\nProcessed {len(mouseinfo)} sessions")
     print("You can now run init_project()")

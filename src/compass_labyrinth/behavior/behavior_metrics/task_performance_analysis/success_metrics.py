@@ -25,10 +25,10 @@ from statsmodels.stats.multicomp import pairwise_tukeyhsd
 ###################################################################
 def assign_bout_indices_from_entry_node(
     navigation_df: pd.DataFrame,
-    delimiter_node: int = 47,
+    delimiter_node: int = 0,
 ) -> pd.DataFrame:
     """
-    Assigns bout indices to each row of a session based on entries to a delimiter node (e.g., Entry node = 47).
+    Assigns bout indices to each row of a session based on entries to a delimiter node (e.g., Entry node = 0).
     A new bout starts every time the delimiter node is encountered.
 
     Parameters
@@ -52,6 +52,51 @@ def assign_bout_indices_from_entry_node(
 
         for row_idx in range(len(session_data)):
             if session_data.loc[row_idx, "grid_number"] != delimiter_node:
+                session_data.loc[row_idx, "bout_id"] = bout_counter
+            else:
+                session_data.loc[row_idx, "bout_id"] = 0
+                bout_counter += 1
+
+        all_sessions.append(session_data)
+
+    return pd.concat(all_sessions, ignore_index=True)
+
+
+def assign_bout_indices_from_entry_zone(
+    navigation_df: pd.DataFrame,
+    delimiter_nodes: list = [0, 1],
+) -> pd.DataFrame:
+    """
+    Same as assign_bout_indices_from_entry_node(), but a bout boundary is
+    marked whenever grid_number is in delimiter_nodes rather than requiring
+    an exact match to a single node. Useful when the entry zone is a single
+    small cell (e.g. this maze's entry_zone=[0], 1 of 100 cells) and tracking
+    sparsity means some sessions never happen to catch the mouse in that
+    exact cell, even though they do catch it in the immediately adjacent
+    cell(s) -- with a strict single-node delimiter, those sessions collapse
+    into one giant undifferentiated bout and trivially "succeed".
+
+    Parameters
+    -----------
+    navigation_df : pd.DataFrame
+        DataFrame with 'session' and 'grid_number' columns.
+    delimiter_nodes : list
+        Grid numbers that mark the entry point for bouts.
+
+    Returns
+    --------
+    pd.DataFrame
+        DataFrame with an added 'bout_id' column.
+    """
+    all_sessions = []
+
+    for _, session_data in navigation_df.groupby("session"):
+        session_data = session_data.reset_index(drop=True).copy()
+        session_data["bout_id"] = 0
+        bout_counter = 1
+
+        for row_idx in range(len(session_data)):
+            if session_data.loc[row_idx, "grid_number"] not in delimiter_nodes:
                 session_data.loc[row_idx, "bout_id"] = bout_counter
             else:
                 session_data.loc[row_idx, "bout_id"] = 0

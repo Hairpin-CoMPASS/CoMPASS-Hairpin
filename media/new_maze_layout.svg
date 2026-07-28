@@ -1,0 +1,269 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="670" height="820" viewBox="0 0 670 820" font-family="Segoe UI, Arial, sans-serif">
+<rect x="0" y="0" width="670" height="820" fill="#eef2f7"/>
+<text x="335" y="34" text-anchor="middle" font-size="20" font-weight="600" fill="#1c2b3a">New Maze Layout - 10x10 Hairpin Corridor</text>
+<text x="335" y="56" text-anchor="middle" font-size="12" fill="#5b7089">FID = col*10 + row. Start top-left (FID 0), overshoot terminal top-right (FID 90/91, straight not corner). Purple outlines = corner (turn) cells.</text>
+<rect x="502" y="90" width="108" height="540" fill="#fbe4e8"/>
+<rect x="70" y="90" width="54" height="108" fill="#e1f5ea"/>
+<rect x="448" y="90" width="108" height="108" fill="#f8ecd4"/>
+<rect x="70" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">0</text>
+<rect x="70" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">1</text>
+<rect x="70" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">2</text>
+<rect x="70" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">3</text>
+<rect x="70" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">4</text>
+<rect x="70" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">5</text>
+<rect x="70" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">6</text>
+<rect x="70" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">7</text>
+<rect x="70" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">8</text>
+<rect x="70" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="74" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">9</text>
+<rect x="124" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">10</text>
+<rect x="124" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">11</text>
+<rect x="124" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">12</text>
+<rect x="124" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">13</text>
+<rect x="124" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">14</text>
+<rect x="124" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">15</text>
+<rect x="124" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">16</text>
+<rect x="124" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">17</text>
+<rect x="124" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">18</text>
+<rect x="124" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="128" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">19</text>
+<rect x="178" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">20</text>
+<rect x="178" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">21</text>
+<rect x="178" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">22</text>
+<rect x="178" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">23</text>
+<rect x="178" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">24</text>
+<rect x="178" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">25</text>
+<rect x="178" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">26</text>
+<rect x="178" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">27</text>
+<rect x="178" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">28</text>
+<rect x="178" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="182" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">29</text>
+<rect x="232" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">30</text>
+<rect x="232" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">31</text>
+<rect x="232" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">32</text>
+<rect x="232" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">33</text>
+<rect x="232" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">34</text>
+<rect x="232" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">35</text>
+<rect x="232" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">36</text>
+<rect x="232" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">37</text>
+<rect x="232" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">38</text>
+<rect x="232" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="236" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">39</text>
+<rect x="286" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">40</text>
+<rect x="286" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">41</text>
+<rect x="286" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">42</text>
+<rect x="286" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">43</text>
+<rect x="286" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">44</text>
+<rect x="286" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">45</text>
+<rect x="286" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">46</text>
+<rect x="286" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">47</text>
+<rect x="286" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">48</text>
+<rect x="286" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="290" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">49</text>
+<rect x="340" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">50</text>
+<rect x="340" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">51</text>
+<rect x="340" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">52</text>
+<rect x="340" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">53</text>
+<rect x="340" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">54</text>
+<rect x="340" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">55</text>
+<rect x="340" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">56</text>
+<rect x="340" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">57</text>
+<rect x="340" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">58</text>
+<rect x="340" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="344" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">59</text>
+<rect x="394" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">60</text>
+<rect x="394" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">61</text>
+<rect x="394" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">62</text>
+<rect x="394" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">63</text>
+<rect x="394" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">64</text>
+<rect x="394" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">65</text>
+<rect x="394" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">66</text>
+<rect x="394" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">67</text>
+<rect x="394" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">68</text>
+<rect x="394" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="398" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">69</text>
+<rect x="448" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">70</text>
+<rect x="448" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">71</text>
+<rect x="448" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">72</text>
+<rect x="448" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">73</text>
+<rect x="448" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">74</text>
+<rect x="448" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">75</text>
+<rect x="448" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">76</text>
+<rect x="448" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">77</text>
+<rect x="448" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">78</text>
+<rect x="448" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="452" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">79</text>
+<rect x="502" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">80</text>
+<rect x="502" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">81</text>
+<rect x="502" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">82</text>
+<rect x="502" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">83</text>
+<rect x="502" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">84</text>
+<rect x="502" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">85</text>
+<rect x="502" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">86</text>
+<rect x="502" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">87</text>
+<rect x="502" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">88</text>
+<rect x="502" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="506" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">89</text>
+<rect x="556" y="90" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="103" font-size="9" fill="#5b7089" font-family="Consolas, monospace">90</text>
+<rect x="556" y="144" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="157" font-size="9" fill="#5b7089" font-family="Consolas, monospace">91</text>
+<rect x="556" y="198" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="211" font-size="9" fill="#5b7089" font-family="Consolas, monospace">92</text>
+<rect x="556" y="252" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="265" font-size="9" fill="#5b7089" font-family="Consolas, monospace">93</text>
+<rect x="556" y="306" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="319" font-size="9" fill="#5b7089" font-family="Consolas, monospace">94</text>
+<rect x="556" y="360" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="373" font-size="9" fill="#5b7089" font-family="Consolas, monospace">95</text>
+<rect x="556" y="414" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="427" font-size="9" fill="#5b7089" font-family="Consolas, monospace">96</text>
+<rect x="556" y="468" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="481" font-size="9" fill="#5b7089" font-family="Consolas, monospace">97</text>
+<rect x="556" y="522" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="535" font-size="9" fill="#5b7089" font-family="Consolas, monospace">98</text>
+<rect x="556" y="576" width="54" height="54" fill="none" stroke="#b8c6d9" stroke-width="1"/>
+<text x="560" y="589" font-size="9" fill="#5b7089" font-family="Consolas, monospace">99</text>
+<text x="97" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c0</text>
+<text x="151" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c1</text>
+<text x="205" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c2</text>
+<text x="259" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c3</text>
+<text x="313" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c4</text>
+<text x="367" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c5</text>
+<text x="421" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c6</text>
+<text x="475" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c7</text>
+<text x="529" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c8</text>
+<text x="583" y="80" text-anchor="middle" font-size="11" fill="#5b7089" font-family="Consolas, monospace">c9</text>
+<text x="60" y="121" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r0</text>
+<text x="60" y="175" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r1</text>
+<text x="60" y="229" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r2</text>
+<text x="60" y="283" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r3</text>
+<text x="60" y="337" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r4</text>
+<text x="60" y="391" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r5</text>
+<text x="60" y="445" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r6</text>
+<text x="60" y="499" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r7</text>
+<text x="60" y="553" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r8</text>
+<text x="60" y="607" text-anchor="end" font-size="11" fill="#5b7089" font-family="Consolas, monospace">r9</text>
+<rect x="70" y="522" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<rect x="124" y="90" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<rect x="178" y="522" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<rect x="232" y="90" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<rect x="286" y="522" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<rect x="340" y="90" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<rect x="394" y="522" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<rect x="448" y="90" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<rect x="502" y="522" width="108" height="108" fill="none" stroke="#7c5cbf" stroke-width="2.5" rx="3"/>
+<polyline points="97,117 97,171 97,225 97,279 97,333 97,387 97,441 97,495 97,549 97,603 151,603 151,549 151,495 151,441 151,387 151,333 151,279 151,225 151,171 151,117 205,117 205,171 205,225 205,279 205,333 205,387 205,441 205,495 205,549 205,603 259,603 259,549 259,495 259,441 259,387 259,333 259,279 259,225 259,171 259,117 313,117 313,171 313,225 313,279 313,333 313,387 313,441 313,495 313,549 313,603 367,603 367,549 367,495 367,441 367,387 367,333 367,279 367,225 367,171 367,117 421,117 421,171 421,225 421,279 421,333 421,387 421,441 421,495 421,549 421,603 475,603 475,549 475,495 475,441 475,387 475,333 475,279 475,225 475,171 475,117 529,117 529,171 529,225 529,279 529,333 529,387 529,441 529,495 529,549 529,603 583,603 583,549 583,495 583,441 583,387 583,333 583,279 583,225 583,171 583,117" fill="none" stroke="#1f4fa3" stroke-width="3" stroke-linejoin="round" stroke-linecap="round" opacity="0.9"/>
+<circle cx="97" cy="117" r="7" fill="#2f9e64"/>
+<circle cx="583" cy="117" r="7" fill="#c2445a"/>
+<circle cx="124" cy="619" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="124" y="622" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T1</text>
+<circle cx="178" cy="101" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="178" y="104" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T2</text>
+<circle cx="232" cy="619" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="232" y="622" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T3</text>
+<circle cx="286" cy="101" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="286" y="104" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T4</text>
+<circle cx="340" cy="619" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="340" y="622" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T5</text>
+<circle cx="394" cy="101" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="394" y="104" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T6</text>
+<circle cx="448" cy="619" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="448" y="622" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T7</text>
+<circle cx="502" cy="101" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="502" y="104" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T8</text>
+<circle cx="556" cy="619" r="9" fill="#ffffff" stroke="#5b7089" stroke-width="1.2"/>
+<text x="556" y="622" text-anchor="middle" font-size="10" font-weight="600" fill="#5b7089" font-family="Consolas, monospace">T9</text>
+<rect x="70" y="649" width="14" height="14" rx="3" fill="#2f9e64"/>
+<text x="92" y="660" font-size="12.5" fill="#1c2b3a">Start / Entry Zone - top-left (FIDs 0,1)</text>
+<rect x="70" y="671" width="14" height="14" rx="3" fill="#c9922a"/>
+<text x="92" y="682" font-size="12.5" fill="#1c2b3a">Reward / Target Zone - T8, cols 7-8 rows 0-1 (FIDs 70,71,80,81)</text>
+<rect x="70" y="693" width="14" height="14" rx="3" fill="#fbe4e8"/>
+<text x="92" y="704" font-size="12.5" fill="#1c2b3a">Overshoot - everything after the reward zone: cols 8-9</text>
+<rect x="70" y="715" width="14" height="14" rx="3" fill="none" stroke="#7c5cbf" stroke-width="2.5"/>
+<text x="92" y="726" font-size="12.5" fill="#1c2b3a">Corner (turn) cells - 2x2 turn blocks incl. reward zone (NOT the overshoot terminal, FIDs 90/91, which is straight)</text>
+<rect x="70" y="737" width="14" height="14" rx="3" fill="#1f4fa3"/>
+<text x="92" y="748" font-size="12.5" fill="#1c2b3a">Traced path with turn markers T1-T9</text>
+</svg>
+

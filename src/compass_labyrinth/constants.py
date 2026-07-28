@@ -1,6 +1,22 @@
 # =============================================================================
 # PRE-FIXED VALUES (DO NOT EDIT)
 # =============================================================================
+#
+# Maze: 10x10 grid, single serpentine (hairpin) corridor, no branching.
+# FID = col*10 + row, 0-indexed col/row, col0 = leftmost, row0 = top --
+# matching the column-major grid numbering produced by
+# get_grid_coordinates()/batch_create_grids().
+#
+# Path runs: start (col0,row0 = FID0, top-left) -> down col0 -> turn T1
+# (col0<->col1, bottom) -> up col1 -> turn T2 (col1<->col2, top) -> ... ->
+# turn T7 (col6<->col7, bottom) -> up col7 -> reward zone (turn col7<->col8,
+# top, FIDs 70,71,80,81) -> down col8 -> turn T9 (col8<->col9, bottom) -> up
+# col9 -> overshoot terminal (col9, top, FIDs 90,91 -- no further column).
+# Turn numbers count UP from start (T1) to the last turn before the
+# overshoot terminal (T9); the reward zone sits at the 8th of 9 turns
+# (second-to-last). Every turn is a 2x2 open block (4 cells spanning the two
+# columns it connects), not a single-cell pivot, so all 4 cells of a turn
+# are mutually adjacent.
 
 import pandas as pd
 from importlib.resources import files
@@ -8,369 +24,112 @@ from importlib.resources import files
 
 # -------------------- REGION---------------------------#
 # Map Grid Nodes to Regions
-TARGET_ZONE = [84, 85, 86]
-ENTRY_ZONE = [47, 46]
-LOOPS = [
-    33,
-    45,
-    57,
-    58,
-    59,
-    71,
-    83,
-    95,
-    70,
-    69,
-    68,
-    56,
-    44,
-    78,
-    79,
-    80,
-    81,
-    82,
-    94,
-    106,
-    118,
-    105,
-    93,
-    92,
-    104,
-    116,
-    117,
-    91,
-    90,
-    52,
-    53,
-    41,
-    42,
-    43,
-    55,
-    67,
-    54,
-    66,
-    65,
-    64,
-    38,
-    37,
-    36,
-    25,
-    24,
-    13,
-    12,
-    0,
-    1,
+ENTRY_ZONE = [0, 1]  # top-left corner + its one physical neighbor (col0, rows 0-1) --
+# grown from just [0] because entry_zone's single cell is easy for sparse
+# tracking to miss entirely for a whole session, which broke bout
+# segmentation (see assign_bout_indices_from_entry_zone())
+TARGET_ZONE = [70, 71, 80, 81]  # reward zone: turn between col7/col8
+
+# Turn (corner) blocks between start and the reward zone, numbered T1 (first
+# turn leaving start) through T7 (last turn before the reward zone). Each is
+# a 2x2 open room spanning the two columns it connects.
+CORNER_REWARD = [
+    8, 9, 18, 19,      # T1: turn col0 <-> col1 (bottom)
+    10, 11, 20, 21,    # T2: turn col1 <-> col2 (top)
+    28, 29, 38, 39,    # T3: turn col2 <-> col3 (bottom)
+    30, 31, 40, 41,    # T4: turn col3 <-> col4 (top)
+    48, 49, 58, 59,    # T5: turn col4 <-> col5 (bottom)
+    50, 51, 60, 61,    # T6: turn col5 <-> col6 (top)
+    68, 69, 78, 79,    # T7: turn col6 <-> col7 (bottom)
 ]
-NEUTRAL_ZONE = [107, 119, 131, 143]
 
-# P1, P2, P3 are the 3 sections of the Reward Path
-P1 = [22, 21, 34, 20, 32, 31, 30, 29, 17, 5, 4, 3, 2, 14, 26]
-P2 = [27, 39, 51, 63, 62, 61, 60, 72, 73, 74, 75, 76, 77, 89, 101]
-P3 = [102, 103, 115, 114, 113, 125, 137, 136, 135, 123, 111, 110, 109, 108, 96, 97, 98]
-REWARD_PATH = P1 + P2 + P3
+# Straight (non-corner) corridor cells between start and the reward zone.
+NONDECISION_REWARD = [
+    2, 3, 4, 5, 6, 7,              # col0 (below the entry zone)
+    12, 13, 14, 15, 16, 17,        # col1
+    22, 23, 24, 25, 26, 27,        # col2
+    32, 33, 34, 35, 36, 37,        # col3
+    42, 43, 44, 45, 46, 47,        # col4
+    52, 53, 54, 55, 56, 57,        # col5
+    62, 63, 64, 65, 66, 67,        # col6
+    72, 73, 74, 75, 76, 77,        # col7 (up to the reward-zone turn)
+]
 
-LEFT_DEAD_ENDS = [10, 11, 23, 35, 9, 8, 6, 7, 19, 18, 15, 16, 28, 40, 50, 49, 48]  # Left Dead Ends
-RIGHT_DEAD_ENDS = [
-    128,
-    129,
-    130,
-    142,
-    141,
-    140,
-    139,
-    127,
-    126,
-    138,
-    87,
-    88,
-    100,
-    112,
-    124,
-    99,
-    122,
-    134,
-    121,
-    133,
-    132,
-    120,
-]  # Right Dead Ends
-DEAD_ENDS = LEFT_DEAD_ENDS + RIGHT_DEAD_ENDS
+REWARD_PATH = NONDECISION_REWARD + CORNER_REWARD
+
+# Turn (corner) block and straight cells past the reward zone: anything after
+# the reward zone to the end (col8, col9, and the overshoot terminal) --
+# corridor that continues to physically exist past the target but isn't part
+# of the intended route.
+CORNER_OVERSHOOT = [
+    88, 89, 98, 99,  # T9: turn col8 <-> col9 (bottom; last turn before the terminal)
+]
+NONDECISION_OVERSHOOT = [
+    82, 83, 84, 85, 86, 87,        # col8
+    92, 93, 94, 95, 96, 97,        # col9
+    90, 91,                        # overshoot terminal (col9, top) -- straight, not a
+                                   # corner: no paired column beyond it, so no cross-edges
+]
+
+OVERSHOOT = NONDECISION_OVERSHOOT + CORNER_OVERSHOOT
 # ------------------------------------------------------#
 
 REGION_NAMES = {
-    "target_zone": "Target Zone",
     "entry_zone": "Entry Zone",
+    "target_zone": "Target Zone",
     "reward_path": "Reward Path",
-    "dead_ends": "Dead Ends",
-    "neutral_zone": "Neutral Zone",
-    "loops": "Loops",
+    "overshoot": "Overshoot",
 }
 
 # -------CHOOSE REGION NAMES (KEY), MAPPED TO LIST OF GRID NODES IN THAT REGION (VALUE)--------#
 REGION_MAPPING = {
-    "target_zone": TARGET_ZONE,
     "entry_zone": ENTRY_ZONE,
+    "target_zone": TARGET_ZONE,
     "reward_path": REWARD_PATH,
-    "dead_ends": DEAD_ENDS,
-    "neutral_zone": NEUTRAL_ZONE,
-    "loops": LOOPS,
+    "overshoot": OVERSHOOT,
 }
 
 # -------CHOOSE REGION NAMES (KEY), MAPPED TO LENGTH OF GRID NODES IN THAT REGION (VALUE)--------#
 REGION_LENGTHS = {
     "entry_zone": len(ENTRY_ZONE),
-    "loops": len(LOOPS),
-    "dead_ends": len(DEAD_ENDS),
-    "neutral_zone": len(NEUTRAL_ZONE),
-    "reward_path": len(REWARD_PATH),
     "target_zone": len(TARGET_ZONE),
+    "reward_path": len(REWARD_PATH),
+    "overshoot": len(OVERSHOOT),
 }
 
 # ----------------NODE-TYPES-------------------------#
+# No branching anywhere in this maze, so there are no "decision" node types
+# (a decision requires a genuine multi-way choice of next cell). Every turn
+# is a forced U-turn -> classified as "corner", not "decision".
 NODE_NAMES = {
-    "decision_reward": "Decision (Reward)",
-    "nondecision_reward": "Non-Decision (Reward)",
-    "corner_reward": "Corner (Reward)",
-    "decision_nonreward": "Decision (Non-Reward)",
-    "nondecision_nonreward": "Non-Decision (Non-Reward)",
-    "corner_nonreward": "Corner (Non-Reward)",
     "entry_zone": "Entry Zone",
     "target_zone": "Target Zone",
-    "decision_3way": "3-Way Decision",
-    "decision_4way": "4-Way Decision",
+    "corner_reward": "Corner (Reward Path)",
+    "nondecision_reward": "Straight (Reward Path)",
+    "corner_overshoot": "Corner (Overshoot)",
+    "nondecision_overshoot": "Straight (Overshoot)",
 }
 
-DECISION_REWARD = [20, 32, 17, 14, 39, 51, 63, 60, 77, 89, 115, 114, 110, 109, 98]
-NONDECISION_REWARD = [34, 21, 31, 30, 4, 3, 62, 61, 73, 74, 75, 76, 102, 125, 136, 123, 97]
-CORNER_REWARD = [22, 29, 5, 2, 26, 27, 72, 101, 103, 113, 137, 135, 111, 108, 96]
-DECISION_NONREWARD = [100, 71, 12, 24, 42, 106, 92, 119]
-NONDECISION_NONREWARD = [
-    35,
-    23,
-    18,
-    15,
-    28,
-    49,
-    127,
-    140,
-    141,
-    129,
-    126,
-    122,
-    121,
-    99,
-    112,
-    45,
-    58,
-    70,
-    69,
-    83,
-    56,
-    44,
-    13,
-    38,
-    52,
-    64,
-    65,
-    54,
-    55,
-    78,
-    79,
-    80,
-    81,
-    94,
-    91,
-    90,
-    104,
-    131,
-]
-CORNER_NONREWARD = [
-    11,
-    10,
-    9,
-    8,
-    6,
-    7,
-    19,
-    16,
-    40,
-    48,
-    50,
-    139,
-    142,
-    130,
-    128,
-    138,
-    134,
-    133,
-    132,
-    120,
-    88,
-    87,
-    124,
-    33,
-    57,
-    59,
-    95,
-    68,
-    0,
-    1,
-    36,
-    25,
-    37,
-    66,
-    53,
-    41,
-    43,
-    67,
-    82,
-    105,
-    93,
-    116,
-    117,
-    118,
-    107,
-    143,
-]
-ENTRY_ZONE_NODES = [47, 46]
-TARGET_ZONE_NODES = [84, 85, 86]
-DECISION_3WAY = [20, 17, 39, 51, 63, 60, 77, 89, 115, 114, 110, 109, 98]
-DECISION_4WAY = [32, 14]
+ENTRY_ZONE_NODES = ENTRY_ZONE
+TARGET_ZONE_NODES = TARGET_ZONE
 
 NODE_TYPE_MAPPING = {
-    "decision_reward": DECISION_REWARD,
-    "nondecision_reward": NONDECISION_REWARD,
-    "corner_reward": CORNER_REWARD,
-    "decision_nonreward": DECISION_NONREWARD,
-    "nondecision_nonreward": NONDECISION_NONREWARD,
-    "corner_nonreward": CORNER_NONREWARD,
     "entry_zone": ENTRY_ZONE_NODES,
     "target_zone": TARGET_ZONE_NODES,
-    "decision_3way": DECISION_3WAY,
-    "decision_4way": DECISION_4WAY,
+    "corner_reward": CORNER_REWARD,
+    "nondecision_reward": NONDECISION_REWARD,
+    "corner_overshoot": CORNER_OVERSHOOT,
+    "nondecision_overshoot": NONDECISION_OVERSHOOT,
 }
 
 # ----------------PACKAGE DATA-------------------------#
 # Load adjacency matrix from package data
+# Tolerance is 3 grid-steps per frame (not 4): cells are 1.2x larger than the
+# old 12x12 maze's (10x10 over the same physical arena), so the same
+# physical speed covers proportionally fewer new-grid-cells per frame.
+# Re-validate this against real tracking data once available.
 ADJACENCY_MATRIX = pd.read_csv(
-    files("compass_labyrinth.data").joinpath("4step_adjacency_matrix.csv"),
+    files("compass_labyrinth.data").joinpath("3step_adjacency_matrix.csv"),
 )
 
-# Load value function from package data
-VALUE_MAP = pd.read_csv(files("compass_labyrinth.data").joinpath("value_function_per_grid_cell.csv"))
-
-# ----------------CoMPASS-------------------------#
-# Dictionary of each reference grid node mapped to a list of nodes
-CLOSE_REF = {
-    11: 10,
-    47: [11, 23, 35],
-    46: 47,
-    22: [34, 46],
-    20: [22, 21, 8, 32, 44, 56, 68],
-    32: [20, 33, 71, 44, 56, 68],
-    8: 9,
-    33: [45, 57],
-    57: [58, 59],
-    59: [83, 95],
-    68: [69, 70],
-    29: [30, 31, 32],
-    5: [17, 29],
-    7: 6,
-    19: 7,
-    17: [18, 19],
-    2: [3, 4, 5],
-    26: [2, 14],
-    16: [28, 40],
-    14: [15, 16, 12, 13, 24],
-    0: 1,
-    12: [36, 0],
-    39: [27, 37, 38, 25],
-    27: 26,
-    51: [27, 39, 52, 53, 42],
-    63: [51, 64, 65, 66, 54],
-    53: 41,
-    41: 43,
-    43: [55, 67],
-    60: [61, 62, 63],
-    72: [48, 60],
-    48: [49, 50],
-    77: [72, 73, 74, 75, 76, 78, 79, 80, 81, 82],
-    101: [77, 89],
-    89: [90, 91, 92, 93, 94, 106],
-    92: [104, 116],
-    116: 117,
-    93: 105,
-    106: 118,
-    118: 119,
-    119: [107, 131, 143],
-    103: [101, 102],
-    115: [103, 127, 139],
-    139: [140, 141, 142],
-    142: 130,
-    130: [128, 129],
-    113: [114, 115],
-    114: [126, 138],
-    137: [113, 125],
-    135: [136, 137],
-    111: [123, 135],
-    108: [111, 110, 109],
-    110: [122, 134],
-    132: 120,
-    133: 132,
-    109: [121, 133],
-    96: 108,
-    98: [96, 97, 99, 100],
-    88: 87,
-    100: [88, 112, 124],
-    86: 98,
-    84: [85, 86, 84],
-}
-NODES = range(0, 144)
-POS_X = [11, 23, 35, 107, 130, 8, 20, 7, 103, 41, 77, 89, 113, 125, 88, 27, 39, 51, 2, 14, 25, 0, 48, 60, 120]
-POS_Y = [10, 6, 101, 76, 75, 87, 26, 38, 74, 13, 25, 37, 73, 12, 24, 72, 132]
-NEG_X = [
-    83,
-    95,
-    131,
-    143,
-    46,
-    34,
-    118,
-    57,
-    45,
-    105,
-    44,
-    56,
-    68,
-    104,
-    116,
-    55,
-    67,
-    127,
-    139,
-    126,
-    138,
-    17,
-    29,
-    28,
-    40,
-    112,
-    124,
-    123,
-    135,
-    98,
-    122,
-    134,
-    121,
-    133,
-    108,
-    36,
-]
-NEG_Y = [x for x in NODES if x not in POS_X + POS_Y + NEG_X]
-
-X_Y_MAPPING = {
-    "pos_x": POS_X,
-    "pos_y": POS_Y,
-    "neg_x": NEG_X,
-    "neg_y": NEG_Y,
-}
+NODES = range(0, 100)

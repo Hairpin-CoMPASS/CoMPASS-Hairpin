@@ -380,7 +380,7 @@ def plot_interactive_heatmap(
     genotype_name: str,
     decision_grids: str | None = None,
     target_grids: str | None = None,
-    entry_node_id: int | None = 47,
+    entry_node_id: int | None = 0,
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -401,7 +401,7 @@ def plot_interactive_heatmap(
     target_grids : str | None
         Node type to mark as target (e.g., "target_zone").
     entry_node_id : int
-        ID of the entry node (default is 47).
+        ID of the entry node (default is 0).
     save_fig : bool
         Whether to save the figure.
     show_fig : bool
@@ -498,8 +498,8 @@ def plot_interactive_heatmap(
         margin=dict(l=0, r=0, t=40, b=0),
     )
 
-    # Add annotations above Grid Number 47 and below 84
-    for FID, label, valign in [(47, "entry_zone", "top"), (84, "target_zone", "bottom")]:
+    # Add annotations above Grid Number 0 (entry) and below 70 (target zone)
+    for FID, label, valign in [(0, "entry_zone", "top"), (70, "target_zone", "bottom")]:
         if FID in grid_mapped["FID"].values:
             poly = grid_mapped.loc[grid_mapped["FID"] == FID, "geometry"].values[0]
             centroid_x = poly.centroid.x
@@ -541,7 +541,7 @@ def plot_all_genotype_interactive_heatmaps(
     hmm_state: int = 2,
     decision_grids: str | None = None,
     target_grids: str | None = None,
-    entry_node_id: int | None = 47,
+    entry_node_id: int | None = 0,
     top_percent: float = 0.1,
     save_fig: bool = True,
     show_fig: bool = True,
@@ -565,7 +565,7 @@ def plot_all_genotype_interactive_heatmaps(
     target_grids : str | None
         Node type to mark as target (e.g., "target_zone").
     entry_node_id : int | None
-        ID of the entry node (default is 47).
+        ID of the entry node (default is 0).
     top_percent : float
         Top percentage of transitions to visualize.
     save_fig : bool

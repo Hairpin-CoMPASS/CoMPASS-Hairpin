@@ -601,8 +601,9 @@ def plot_region_heatmaps(
         ax.set_ylabel("")
         ax.tick_params(axis="x", labelsize=10)
         ax.tick_params(axis="y", labelrotation=0, labelsize=10)
+        cax.set_ylabel("Occupancy density\n(normalized by region area)", fontsize=9)
 
-    fig.suptitle(f"Region Occupancy Heatmaps for {group_name}", fontsize=18, weight="bold", y=0.99)
+    fig.suptitle(f"Region Occupancy Density Heatmaps for {group_name}", fontsize=18, weight="bold", y=0.99)
     plt.subplots_adjust(top=0.95, bottom=0.03, left=0.05, right=0.95)
 
     # Save figure
@@ -739,6 +740,10 @@ def plot_region_heatmaps_all_genotypes(
                 linecolor="white",
                 cbar=(show_colorbar and j == n_genos - 1),
             )
+            if show_colorbar and j == n_genos - 1:
+                ax.collections[0].colorbar.set_label(
+                    "Occupancy density\n(normalized by region area)", fontsize=9
+                )
 
             # Titles
             if i == 0:
@@ -759,7 +764,7 @@ def plot_region_heatmaps_all_genotypes(
             ax.set_xticklabels(pivot_tab.columns, fontsize=9)
             ax.tick_params(axis="x", bottom=True)
 
-    fig.suptitle("Region Occupancy Heatmaps by Genotype & Bin", fontsize=17, weight="bold", y=1.01)
+    fig.suptitle("Region Occupancy Density Heatmaps by Genotype & Bin", fontsize=17, weight="bold", y=1.01)
 
     plt.subplots_adjust(wspace=spacing_w, hspace=spacing_h, top=0.95, bottom=0.05, left=0.05, right=0.95)
 
@@ -918,6 +923,134 @@ def plot_entropy_over_bins(
     # Save figure
     if save_fig:
         save_path = Path(config["project_path_full"]) / "figures" / "shannon_entropy.pdf"
+        plt.savefig(save_path, bbox_inches="tight", dpi=300)
+        print(f"Figure saved at: {save_path}")
+
+    if show_fig:
+        plt.show()
+
+    if return_fig:
+        return g
+
+
+def plot_entropy_over_bins_zoomed(
+    config: dict,
+    entropy_df: pd.DataFrame,
+    cutoff_bin: int = 40000,
+    df_all_csv: pd.DataFrame | None = None,
+    palette: list | None = None,
+    ylim: tuple = (0, 2),
+    aspect: float = 2.0,
+    height: float = 6,
+    save_fig: bool = True,
+    show_fig: bool = True,
+    return_fig: bool = False,
+) -> None | plt.Figure:
+    """
+    Zoomed-in companion to plot_entropy_over_bins(): restricts to bins <= cutoff_bin
+    and enlarges the figure. Below the x-axis, annotates how many sessions
+    contribute to each bin -- and, if df_all_csv is provided, how many of those
+    are a genuinely full bin's worth of frames vs. a thin partial slice (a
+    session with fewer total frames than the bin's upper edge still gets
+    included with whatever partial data it has, which is easy to miss from
+    entropy_df alone since it only records whether a value exists, not how
+    many frames it was computed from).
+
+    Parameters
+    -----------
+    config : dict
+        Configuration dictionary containing project settings.
+    entropy_df : pd.DataFrame
+        DataFrame containing 'session', 'bin', 'entropy', and 'genotype' columns.
+    cutoff_bin : int
+        Last bin (inclusive) to show.
+    df_all_csv : pd.DataFrame | None
+        The preprocessed per-frame dataframe (with 'session' column) used to
+        build entropy_df's underlying pivot_dict. If provided, enables the
+        full-vs-partial breakdown in the per-bin annotation.
+    palette : list | None
+        List of colors for genotypes.
+    ylim : tuple
+        Y-axis limits.
+    aspect : float
+        Width-to-height ratio passed to seaborn's catplot.
+    height : float
+        Figure height (inches) passed to seaborn's catplot.
+    save_fig : bool
+        Whether to save the figure.
+    show_fig : bool
+        Whether to display the figure.
+    return_fig : bool
+        Whether to return the figure object.
+
+    Returns
+    --------
+    None | plt.Figure
+        The figure object if return_fig is True, otherwise None.
+    """
+    df = entropy_df[entropy_df["bin"] <= cutoff_bin].copy()
+
+    sns.set_style("ticks")
+    g = sns.catplot(
+        data=df,
+        x="bin",
+        y="entropy",
+        hue="genotype",
+        kind="point",
+        capsize=0.15,
+        err_kws={"linewidth": 1.5},
+        errorbar="se",
+        palette=palette,
+        legend=True,
+        aspect=aspect,
+        height=height,
+    )
+
+    g._legend.set_title("genotype")
+    g._legend.set_bbox_to_anchor((1, 1))
+    for text in g._legend.texts:
+        text.set_fontsize(12)
+    g._legend.get_title().set_fontsize(13)
+
+    ax = g.ax
+    ax.set_ylim(ylim)
+    ax.set_xlabel("Frames", fontsize=15)
+    ax.set_ylabel("Shannon's Entropy\n(per session per bin)", fontsize=15)
+
+    session_rows = None
+    if df_all_csv is not None:
+        session_rows = df_all_csv.groupby("session").size()
+
+    bins_sorted = sorted(df["bin"].unique())
+    valid = df.dropna(subset=["entropy"])
+    for i, bin_val in enumerate(bins_sorted):
+        sessions_this_bin = valid.loc[valid["bin"] == bin_val, "session"].unique()
+        n = len(sessions_this_bin)
+        is_cutoff = bin_val == cutoff_bin
+
+        if session_rows is not None:
+            n_full = sum(session_rows.get(int(s), 0) >= bin_val for s in sessions_this_bin)
+            label = f"n={n} ({n_full} full)"
+        else:
+            label = f"n={n}"
+
+        ax.annotate(
+            label,
+            xy=(i, 0),
+            xycoords=("data", "axes fraction"),
+            xytext=(0, -32),
+            textcoords="offset points",
+            ha="center",
+            fontsize=9,
+            color="firebrick" if is_cutoff else "dimgray",
+            weight="bold" if is_cutoff else "normal",
+        )
+
+    plt.tight_layout()
+
+    # Save figure
+    if save_fig:
+        save_path = Path(config["project_path_full"]) / "figures" / "shannon_entropy_zoomed.pdf"
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
@@ -1323,6 +1456,7 @@ def run_region_usage_stats_mixedlm(
     df_nan = reg_binned[["session", "bin", "genotype", safe_col]].dropna()
     df_nan["bin"] = df_nan["bin"].astype(float)
     df_nan["genotype"] = df_nan["genotype"].astype("category")
+    df_nan[safe_col] = pd.to_numeric(df_nan[safe_col], errors="coerce")
 
     print("\n=== Mixed Effects Model (missing values preserved) ===")
     try:

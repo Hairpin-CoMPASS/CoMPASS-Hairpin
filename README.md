@@ -90,7 +90,7 @@ conda activate compass-labyrinth
 - **03_simulated_agent_modeling** : Simulated Agent modeling
 - **04_compass_level_1** : CoMPASS Level 1 model
 - **05_compass_level_1_post_analysis** : CoMPASS Level 1 post analysis
-- **06_compass_level_2** : CoMPASS Level 2 model
+- **06_compass_level_2** : CoMPASS Level 2 model — **not yet implemented for the new hairpin maze** (still uses the old 144-cell maze's `CLOSE_REF`/`X_Y_MAPPING`/`VALUE_MAP` and decision-node concepts)
 
 <p align="center">
   <img src="media/compass_workflow.png" alt="Workflow" width="900"/>

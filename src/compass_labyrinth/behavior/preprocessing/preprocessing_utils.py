@@ -14,8 +14,10 @@ from pathlib import Path
 from compass_labyrinth.utils import load_cohort_metadata
 from compass_labyrinth.constants import (
     NODE_TYPE_MAPPING,
+    NODE_NAMES,
     REGION_MAPPING,
     ADJACENCY_MATRIX,
+    ENTRY_ZONE,
 )
 
 
@@ -249,115 +251,6 @@ def load_and_preprocess_session_data(
 def compile_mouse_sessions(
     config: dict,
     bp: str,
-    region_mapping: dict,
-) -> pd.DataFrame:
-    """
-    Compile all sessions into a single dataframe.
-    """
-    pose_est_filepath = Path(config["project_path_full"]) / "data" / "dlc_results"
-    cohort_metadata = load_cohort_metadata(config)
-
-    cohort_metadata = cohort_metadata.copy()
-    cohort_metadata.columns = (
-        cohort_metadata.columns.astype(str)
-        .str.strip()
-        .str.lower()
-        .str.replace(r"\s+", "_", regex=True)
-    )
-
-    if "session" in cohort_metadata.columns:
-        session_col = "session"
-    elif "session_#" in cohort_metadata.columns:
-        session_col = "session_#"
-    elif "session#" in cohort_metadata.columns:
-        session_col = "session#"
-    else:
-        raise ValueError(
-            f"No session column found in cohort metadata. "
-            f"Columns found: {list(cohort_metadata.columns)}"
-        )
-
-    genotype_col = "genotype" if "genotype" in cohort_metadata.columns else None
-    sex_col = "sex" if "sex" in cohort_metadata.columns else None
-
-    li_group = []
-    missing_sessions = []
-
-    for sess in cohort_metadata[session_col].dropna().unique():
-        session_num = int(sess)
-        session_id = f"Session{session_num:04d}"
-
-        filename_csv_underscore = pose_est_filepath / f"{session_id}_withGrids.csv"
-        filename_csv_noscore = pose_est_filepath / f"{session_id}withGrids.csv"
-        filename_nc = pose_est_filepath / f"{session_id}.nc"
-
-        if filename_csv_underscore.exists():
-            filename = filename_csv_underscore
-        elif filename_csv_noscore.exists():
-            filename = filename_csv_noscore
-        elif filename_nc.exists():
-            filename = filename_nc
-        else:
-            missing_sessions.append(session_num)
-            print(
-                f"[WARN] Skipping session {session_num}: no matching file found "
-                f"(tried '{filename_csv_underscore.name}', "
-                f"'{filename_csv_noscore.name}', '{filename_nc.name}')"
-            )
-            continue
-
-        df = load_and_preprocess_session_data(
-            filename=filename,
-            bp=bp,
-            region_mapping=region_mapping,
-        )
-
-        df["session"] = session_num
-        li_group.append(df)
-
-    if not li_group:
-        raise RuntimeError("No session files were loaded. All sessions were missing.")
-
-    df_comb = pd.concat(li_group, axis=0, ignore_index=True)
-
-    if "grid_number" in df_comb.columns:
-        df_comb["grid_number"] = pd.to_numeric(df_comb["grid_number"], errors="coerce")
-        df_comb = df_comb.dropna(subset=["grid_number"]).copy()
-        df_comb["grid_number"] = df_comb["grid_number"].astype(int)
-
-    if genotype_col is not None:
-        session_to_genotype = dict(
-            cohort_metadata[[session_col, genotype_col]].drop_duplicates().values
-        )
-        df_comb["genotype"] = df_comb["session"].map(session_to_genotype)
-
-    if sex_col is not None:
-        session_to_sex = dict(
-            cohort_metadata[[session_col, sex_col]].drop_duplicates().values
-        )
-        df_comb["sex"] = df_comb["session"].map(session_to_sex)
-
-    if missing_sessions:
-        missing_sessions_sorted = sorted(missing_sessions)
-        print(
-            "\n[SUMMARY] The following sessions were skipped because no file was found:\n"
-            f"{missing_sessions_sorted}\n"
-            f"Total skipped: {len(missing_sessions_sorted)}"
-        )
-
-    df_comb.columns = (
-        df_comb.columns.astype(str)
-        .str.strip()
-        .str.lower()
-        .str.replace(r"\s+", "_", regex=True)
-    )
-
-    return df_comb
-
-
-def compile_mouse_sessions(
-    config: dict,
-    bp: str,
     region_mapping: dict = REGION_MAPPING,
 ) -> pd.DataFrame:
     """
@@ -366,7 +259,8 @@ def compile_mouse_sessions(
     Parameters
     ----------
     config : dict
-        Project configuration dictionary.
+        Project configuration dictionary. Uses config["dlc_results_path"] if
+        present, otherwise project_path_full/data/dlc_results.
     bp : str
         Body part name (e.g. 'sternum').
     region_mapping : dict
@@ -378,7 +272,10 @@ def compile_mouse_sessions(
         Combined session dataframe with region, genotype, sex.
         Sessions with missing files are skipped and reported.
     """
-    pose_est_filepath = Path(config["project_path_full"]) / "data" / "dlc_results"
+    if "dlc_results_path" in config:
+        pose_est_filepath = Path(config["dlc_results_path"])
+    else:
+        pose_est_filepath = Path(config["project_path_full"]) / "data" / "dlc_results"
     cohort_metadata = load_cohort_metadata(config)
 
     cohort_metadata = cohort_metadata.copy()
@@ -481,7 +378,7 @@ def compile_mouse_sessions(
 
 def remove_until_initial_node(
     df: pd.DataFrame,
-    initial_nodes: list = [47, 46, 34, 22],
+    initial_nodes: list = ENTRY_ZONE,
 ) -> pd.DataFrame:
     """
     Removes all rows in the dataframe until the first occurrence of a grid node
@@ -500,23 +397,35 @@ def remove_until_initial_node(
 def remove_invalid_grid_transitions(
     df: pd.DataFrame,
     adjacency_matrix: pd.DataFrame = ADJACENCY_MATRIX,
+    max_frame_gap: int = 3,
 ) -> pd.DataFrame:
     """
     Removes rows where transitions between consecutive grid numbers
-    are not valid based on the adjacency matrix.
+    are not valid based on the adjacency matrix. Transitions across a gap
+    larger than max_frame_gap original frames (s_no) are left alone -- the
+    mouse was untracked for that stretch, not necessarily mis-tracked, so
+    there's no basis to treat the transition as an error to fix by deleting
+    data.
     """
     grid_numbers = list(df["grid_number"])
+    s_no = list(df["s_no"])
     drop_indices = []
     x = 0
     num = 0
 
     while x < len(grid_numbers) - 1:
+        if s_no[x + 1] - s_no[x] > max_frame_gap:
+            x += 1
+            num += 1
+            continue
+
         from_node = int(grid_numbers[x])
         to_node = int(grid_numbers[x + 1])
         col_name = f'Grid{str(to_node).replace(".0", "")}'
 
         if adjacency_matrix.loc[from_node, col_name] == 0:
             del grid_numbers[x + 1]
+            del s_no[x + 1]
             drop_indices.append(num + 1)
         else:
             x += 1
@@ -529,7 +438,7 @@ def remove_invalid_grid_transitions(
 def preprocess_sessions(
     df_comb: pd.DataFrame,
     adjacency_matrix: pd.DataFrame = ADJACENCY_MATRIX,
-    initial_nodes: list = [47, 46, 34, 22],
+    initial_nodes: list = ENTRY_ZONE,
 ) -> pd.DataFrame:
     """
     Full preprocessing pipeline for all sessions:
@@ -556,20 +465,9 @@ def preprocess_sessions(
     df_all_cleaned["session"] = df_all_cleaned["session"].astype(int)
     df_all_cleaned["grid_number"] = df_all_cleaned["grid_number"].astype(int)
 
-    label_mapping = {
-        "decision_reward": "Decision (Reward)",
-        "nondecision_reward": "Non-Decision (Reward)",
-        "corner_reward": "Corner (Reward)",
-        "decision_nonreward": "Decision (Non-Reward)",
-        "nondecision_nonreward": "Non-Decision (Non-Reward)",
-        "corner_nonreward": "Corner (Non-Reward)",
-        "entry_zone": "Entry Nodes",
-        "target_zone": "Target Nodes",
-    }
-
     df_all_cleaned["node_type"] = "unlabeled"
 
-    for var_name, label in label_mapping.items():
+    for var_name, label in NODE_NAMES.items():
         node_list = NODE_TYPE_MAPPING[var_name]
         df_all_cleaned.loc[
             df_all_cleaned["grid_number"].isin(node_list), "node_type"
