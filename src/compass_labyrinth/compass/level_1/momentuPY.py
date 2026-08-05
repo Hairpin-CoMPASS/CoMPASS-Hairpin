@@ -7,7 +7,6 @@ from dataclasses import dataclass
 from typing import Dict, Any, List, Tuple, Optional
 from scipy.special import gammaln, i0e
 from scipy.optimize import minimize
-from tqdm.auto import tqdm
 
 
 # =========================
@@ -421,6 +420,15 @@ class GammaHMM:
             inv = np.empty_like(order)
             inv[order] = np.arange(len(order))
             self.viterbi_ = inv[self.viterbi_]
+        # step_means_/turn_metric_ must be kept in sync too -- _enforce_or_reject()
+        # reads these to decide whether a reorder is needed, and it gets called a
+        # second time inside _summarize(). Without reordering these, that second
+        # call re-reads stale (pre-reorder) values, recomputes the same swap
+        # decision, and re-applies it -- undoing this reorder for a 2-state swap.
+        if hasattr(self, "step_means_"):
+            self.step_means_ = self.step_means_[order]
+        if hasattr(self, "turn_metric_"):
+            self.turn_metric_ = self.turn_metric_[order]
 
 
 # =========================
@@ -480,6 +488,47 @@ class BestResult:
         save_compass_level_1_results(config, self)
 
 
+def merge_stationary_frames(
+    res: "BestResult",
+    excluded_df: pd.DataFrame,
+    stationary_label: int = 0,
+) -> pd.DataFrame:
+    """
+    Re-attach frames excluded before fitting (e.g. near-zero-step frames whose
+    turning angle is too noisy to model) back into the labeled dataset, tagged
+    with a distinct hmm_state value instead of being silently dropped.
+
+    Parameters
+    -----------
+    res : BestResult
+        Output of fit_best_hmm(), fit on the step-filtered data.
+    excluded_df : pd.DataFrame
+        The rows excluded before fitting (same columns as res.data, minus the
+        hmm_state/post_prob columns).
+    stationary_label : int
+        Value to assign to hmm_state for the excluded rows (default 0, distinct
+        from the 1/2 labels fit_best_hmm assigns).
+
+    Returns
+    --------
+    pd.DataFrame
+        res.data and excluded_df concatenated, with excluded rows labeled
+        hmm_state=stationary_label and NaN posterior probabilities, sorted back
+        into session/original-frame order.
+    """
+    excluded = excluded_df.copy()
+    excluded["hmm_state"] = stationary_label
+    post_prob_cols = [c for c in res.data.columns if c.startswith("post_prob_")]
+    for c in post_prob_cols:
+        excluded[c] = np.nan
+
+    combined = pd.concat([res.data, excluded[res.data.columns]], ignore_index=True)
+    sort_cols = [c for c in ("session", "s_no") if c in combined.columns]
+    if sort_cols:
+        combined = combined.sort_values(sort_cols).reset_index(drop=True)
+    return combined
+
+
 def _enforce_or_reject(model: GammaHMM) -> bool:
     step = model.step_means_
     turn = model.turn_metric_
@@ -490,6 +539,79 @@ def _enforce_or_reject(model: GammaHMM) -> bool:
     if not (s1 == 0 and s2 == 1):
         model.reorder_states([s1, s2])
     return True
+
+
+def _fit_one_candidate(
+    df_use: pd.DataFrame,
+    abs_flag: bool,
+    opt: str,
+    this_seed: int,
+    n_states: int,
+    max_iter: int,
+    stationary: bool,
+    angle_mean_biased: tuple[float, float],
+    enforce_behavioral_constraints: bool,
+    preproc_df: pd.DataFrame,
+    session_col: str,
+) -> Optional[Tuple[Dict[str, Any], "GammaHMM", pd.DataFrame, Dict[str, Any]]]:
+    """
+    Fit a single HMM candidate (one repetition of one optimizer/angle-model
+    combination). Independent of every other candidate -- safe to run in
+    parallel across processes.
+
+    Returns
+    --------
+    None if fitting raised an exception or the fit was rejected by the
+    behavioral constraint check; otherwise (record, model, out_df, summary)
+    for the caller to collect.
+    """
+    try:
+        model = GammaHMM(
+            n_states=n_states,
+            angle_model=("absgamma" if abs_flag else "vm"),
+            max_iter=max_iter,
+            tol=1e-4,
+            method=opt,
+            random_state=this_seed,
+            stationary=stationary,
+            angle_bias=(angle_mean_biased if not abs_flag else None),
+        )
+        model.fit(df_use, id_col=session_col, step_col="step", angle_col="angle")
+
+        # Strict behavioral gate + enforce ordering
+        if enforce_behavioral_constraints and not _enforce_or_reject(model):
+            return None
+
+        summ = _summarize(model)
+        record = {
+            "abs_angle": abs_flag,
+            "optimizer": opt,
+            "seed": this_seed,
+            "AIC": summ["AIC"],
+            "loglik": summ["loglik"],
+        }
+
+        # attach states/posteriors back to the original df rows
+        out = preproc_df.copy()
+        out["hmm_state"] = np.nan
+        for s in range(model.S):
+            out[f"post_prob_{s+1}"] = np.nan
+        # valid mask (same as fit)
+        m = np.isfinite(preproc_df["step"].to_numpy(float)) & np.isfinite(
+            (
+                np.abs(preproc_df["angle"].to_numpy(float))
+                if abs_flag
+                else preproc_df["angle"].to_numpy(float)
+            )
+        )
+        out.loc[m, "hmm_state"] = (model.viterbi_ + 1).astype(int)  # 1/2 labeling
+        # for s in range(model.S):      # Optional add the State Probs
+        #     out.loc[m, f"post_prob_{s+1}"] = model.posterior_[:, s]
+
+        return (record, model, out, summ)
+
+    except Exception:
+        return None
 
 
 def fit_best_hmm(
@@ -506,6 +628,7 @@ def fit_best_hmm(
     seed: int = 123,
     enforce_behavioral_constraints: bool = True,
     show_progress: bool = True,
+    n_jobs: int = -1,
 ) -> BestResult:
 
     rng = np.random.default_rng(seed)
@@ -520,9 +643,6 @@ def fit_best_hmm(
     records = []
     candidates: List[Tuple[GammaHMM, pd.DataFrame, Dict[str, Any]]] = []
 
-    total = len(use_abs_angle) * len(opt_methods) * n_repetitions
-    pbar = tqdm(total=total, desc="Gamma/VM HMM search", leave=False) if show_progress else None
-
     for abs_flag in use_abs_angle:
         angle_var = "angle_abs" if abs_flag else "angle"
         df_use = base.copy()
@@ -531,64 +651,37 @@ def fit_best_hmm(
         if use_data_driven_ranges:
             _ = compute_parameter_ranges(df_use, angle_var, use_vm=(not abs_flag))
 
-        for opt in opt_methods:
-            for it in range(n_repetitions):
-                this_seed = int(rng.integers(0, 10_000_000))
-                try:
-                    model = GammaHMM(
-                        n_states=n_states,
-                        angle_model=("absgamma" if abs_flag else "vm"),
-                        max_iter=max_iter,
-                        tol=1e-4,
-                        method=opt,
-                        random_state=this_seed,
-                        stationary=stationary,
-                        angle_bias=(angle_mean_biased if not abs_flag else None),
-                    )
-                    model.fit(df_use, id_col=session_col, step_col="step", angle_col="angle")
+        # Pre-generate seeds sequentially (same order as the original nested
+        # loop: optimizer-major, repetition-minor) so results stay
+        # reproducible regardless of how the parallel workers get scheduled.
+        tasks = [
+            (opt, int(rng.integers(0, 10_000_000))) for opt in opt_methods for _it in range(n_repetitions)
+        ]
 
-                    # Strict behavioral gate + enforce ordering
-                    if enforce_behavioral_constraints and not _enforce_or_reject(model):
-                        continue
+        results = joblib.Parallel(n_jobs=n_jobs, verbose=10 if show_progress else 0)(
+            joblib.delayed(_fit_one_candidate)(
+                df_use,
+                abs_flag,
+                opt,
+                this_seed,
+                n_states,
+                max_iter,
+                stationary,
+                angle_mean_biased,
+                enforce_behavioral_constraints,
+                preproc_df,
+                session_col,
+            )
+            for opt, this_seed in tasks
+        )
 
-                    summ = _summarize(model)
-                    records.append(
-                        {
-                            "abs_angle": abs_flag,
-                            "optimizer": opt,
-                            "seed": this_seed,
-                            "AIC": summ["AIC"],
-                            "loglik": summ["loglik"],
-                        }
-                    )
+        for r in results:
+            if r is None:
+                continue
+            record, model, out, summ = r
+            records.append(record)
+            candidates.append((model, out, summ))
 
-                    # attach states/posteriors back to the original df rows
-                    out = preproc_df.copy()
-                    out["hmm_state"] = np.nan
-                    for s in range(model.S):
-                        out[f"post_prob_{s+1}"] = np.nan
-                    # valid mask (same as fit)
-                    m = np.isfinite(preproc_df["step"].to_numpy(float)) & np.isfinite(
-                        (
-                            np.abs(preproc_df["angle"].to_numpy(float))
-                            if abs_flag
-                            else preproc_df["angle"].to_numpy(float)
-                        )
-                    )
-                    out.loc[m, "hmm_state"] = (model.viterbi_ + 1).astype(int)  # 1/2 labeling
-                    # for s in range(model.S):      # Optional add the State Probs
-                    #     out.loc[m, f"post_prob_{s+1}"] = model.posterior_[:, s]
-
-                    candidates.append((model, out, summ))
-
-                except Exception:
-                    pass
-                finally:
-                    if pbar:
-                        pbar.update(1)
-
-    if pbar:
-        pbar.close()
     if len(candidates) == 0:
         raise RuntimeError("No valid models met the behavioral objective across configurations.")
 

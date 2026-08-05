@@ -79,27 +79,87 @@ def compute_state_probability(
     return state_count
 
 
+def compute_zone_velocity(
+    df_hmm: pd.DataFrame,
+    column_of_interest: str,
+    values_displayed: list[str] | None = None,
+) -> pd.DataFrame:
+    """
+    Computes mean velocity by category (e.g., custom_zone), per session -- the
+    velocity counterpart of compute_state_probability(), for Plot 2b's "Mean
+    Velocity across Custom Zones" boxplot instead of a state-proportion one.
+
+    Parameters
+    -----------
+    df_hmm: pd.DataFrame
+        Dataframe with 'genotype', 'session', 'velocity', and category column.
+    column_of_interest: str
+        e.g. 'custom_zone'.
+    values_displayed: Optional[List[str]]
+        Categories to include and order.
+
+    Returns
+    --------
+    pd.DataFrame
+        Dataframe with mean velocity per session, genotype, and category
+        (column "velocity") -- pass to plot_state_probability_boxplot() with
+        value_col="velocity" and to run_pairwise_ttests() with
+        value_col="velocity".
+    """
+    velocity_by_zone = (
+        df_hmm.groupby(["genotype", column_of_interest, "session"])["velocity"].mean().reset_index()
+    )
+    if values_displayed:
+        velocity_by_zone = velocity_by_zone[velocity_by_zone[column_of_interest].isin(values_displayed)].reset_index(
+            drop=True
+        )
+        velocity_by_zone[column_of_interest] = pd.Categorical(
+            velocity_by_zone[column_of_interest], categories=values_displayed, ordered=True
+        )
+    return velocity_by_zone
+
+
 def plot_state_probability_boxplot(
     config: dict,
     state_count_df: pd.DataFrame,
     column_of_interest: str,
     state: int = 1,
+    value_col: str = "prop",
+    metric_label: str | None = None,
+    filename_stem: str | None = None,
     figsize: tuple = (16, 7),
     palette: str = "Set2",
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
 ) -> None | plt.Figure:
     """
-    Plots boxplot of HMM state probabilities by category and genotype.
+    Plots boxplot of HMM state probabilities (or any other per-category value) by category and genotype.
 
     Parameters
     state_count: pd.DataFrame
-        Dataframe returned from compute_state_probability()
+        Dataframe returned from compute_state_probability() (or another
+        compute_*() sharing its ["genotype", column_of_interest, value_col]
+        shape, e.g. compute_zone_velocity()).
     column_of_interest: str
         Categorical variable on x-axis
     state: int
-        HMM state used for labeling
+        HMM state used for labeling. Ignored (label falls back to
+        metric_label) when metric_label is given.
+    value_col : str
+        Column on state_count_df to plot on the y-axis -- "prop" (default,
+        from compute_state_probability()) for HMM state proportions, or
+        whatever column another compute_*() produced (e.g. "velocity").
+    metric_label : str | None
+        Overrides the state-based y-axis label entirely, e.g. "Mean
+        Velocity" -- use this for any value_col that isn't an HMM state
+        proportion.
+    filename_stem : str | None
+        Overrides the state-based filename stem entirely, e.g.
+        "mean_velocity" -- use alongside metric_label so the saved file is
+        identifiable on its own, without relying on figures_dirname.
     figsize: tuple
         Figure size
     palette: str
@@ -119,12 +179,13 @@ def plot_state_probability_boxplot(
     fig = plt.figure(figsize=figsize)
     ax = sns.boxplot(
         x=column_of_interest,
-        y="prop",
+        y=value_col,
         hue="genotype",
         data=state_count_df,
         palette=palette,
     )
-    ax.set_ylabel(f"Probability of being in State {state}", fontsize=15)
+    ylabel = metric_label if metric_label else f"Probability of being in State {state}"
+    ax.set_ylabel(ylabel, fontsize=15)
     ax.set_xlabel(column_of_interest, fontsize=15)
     plt.xticks(size=11)
     plt.yticks(size=15)
@@ -132,9 +193,12 @@ def plot_state_probability_boxplot(
 
     # Save figure
     if save_fig:
+        stem = filename_stem if filename_stem else f"state_{state}_probability"
         save_path = (
-            Path(config["project_path_full"]) / "figures" / f"state_{state}_probability_by_{column_of_interest}.pdf"
+            Path(config["project_path_full"]) / figures_dirname
+            / f"{stem}_by_{column_of_interest}{filename_suffix}.pdf"
         )
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
@@ -153,6 +217,7 @@ def plot_state_probability_boxplot(
 def run_pairwise_ttests(
     state_count_df: pd.DataFrame,
     column_of_interest: str = "node_type",
+    value_col: str = "prop",
 ) -> pd.DataFrame:
     """
     Perform pairwise t-tests between genotypes within each level of the column_of_interest.
@@ -160,9 +225,14 @@ def run_pairwise_ttests(
     Parameters
     -----------
     state_count_df: pd.DataFrame
-        DataFrame returned from compute_state_probability
+        DataFrame returned from compute_state_probability() (or another
+        compute_*() sharing its shape, e.g. compute_zone_velocity())
     column_of_interest: str
         Column over which comparisons are grouped
+    value_col : str
+        Column to compare between genotypes -- "prop" (default, from
+        compute_state_probability()) for HMM state proportions, or whatever
+        column another compute_*() produced (e.g. "velocity").
 
     Returns
     --------
@@ -177,8 +247,8 @@ def run_pairwise_ttests(
         genotypes = subset["genotype"].unique()
 
         for g1, g2 in combinations(genotypes, 2):
-            values1 = subset[subset["genotype"] == g1]["prop"].dropna()
-            values2 = subset[subset["genotype"] == g2]["prop"].dropna()
+            values1 = subset[subset["genotype"] == g1][value_col].dropna()
+            values2 = subset[subset["genotype"] == g2][value_col].dropna()
             if len(values1) >= 2 and len(values2) >= 2:
                 t_stat, p_val = ttest_ind(values1, values2, equal_var=False)
                 results.append({"group": group, "genotype1": g1, "genotype2": g2, "t_stat": t_stat, "p_value": p_val})

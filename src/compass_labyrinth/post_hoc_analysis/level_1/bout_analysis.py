@@ -63,6 +63,7 @@ def assign_bout_indices(
 def compute_surveillance_probabilities(
     df_hmm: pd.DataFrame,
     decision_nodes: str = "decision_reward",
+    node_type_mapping: dict | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
     Compute surveillance probability at Decision nodes by Bout type.
@@ -74,7 +75,12 @@ def compute_surveillance_probabilities(
     df_hmm : pd.DataFrame
         Dataframe with 'genotype', 'session', 'hmm_state', 'grid_number', 'region', and 'bout_id'.
     decision_nodes : str
-        Type of decision node to consider for surveillance probability.
+        Type of decision node to consider for surveillance probability -- a
+        key in node_type_mapping, or constants.NODE_TYPE_MAPPING if not given.
+    node_type_mapping : dict | None
+        Custom {name: [grid_number, ...]} mapping to look decision_nodes up
+        in, instead of the global constants.NODE_TYPE_MAPPING -- pass a
+        notebook's own ZONES dict here to use custom zone groupings.
 
     Returns
     --------
@@ -82,14 +88,15 @@ def compute_surveillance_probabilities(
         Dataframe with median surveillance probabilities per genotype, session, and bout type.
     """
     records = []
-    decision_nodes_ids = NODE_TYPE_MAPPING.get(decision_nodes, [])
+    mapping = node_type_mapping if node_type_mapping is not None else NODE_TYPE_MAPPING
+    decision_nodes_ids = mapping.get(decision_nodes, [])
 
     for session_id, sess_df in df_hmm.groupby("session"):
         genotype = sess_df["genotype"].unique()[0]
         bouts = list(sess_df.groupby("bout_id"))[1:]  # skip incomplete first bout
 
         for bout_num, (_, bout_df) in enumerate(bouts, 1):
-            success = "Successful" if "Target Zone" in bout_df["region"].values else "Unsuccessful"
+            success = "Successful" if "target_zone" in bout_df["region"].values else "Unsuccessful"
             state_probs = bout_df[bout_df["grid_number"].isin(decision_nodes_ids)]["hmm_state"].value_counts(
                 normalize=True
             )
@@ -117,7 +124,9 @@ def plot_surveillance_by_bout(
     median_df: pd.DataFrame,
     ylim: float,
     figure_size: tuple = (6, 6),
-    palette: list = ["grey"],
+    palette: str | list = "Set2",
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -135,8 +144,10 @@ def plot_surveillance_by_bout(
         Y-axis limit for the plot.
     figure_size : tuple
         Size of the figure.
-    palette : list
-        Color palette for the plot.
+    palette : str | list
+        Color palette for the plot. A single-color list can't distinguish
+        multiple genotypes on the hue axis -- use a named qualitative palette
+        (default) or an explicit list with one color per genotype.
     save_fig : bool
         Whether to save the figure.
     show_fig : bool
@@ -175,7 +186,11 @@ def plot_surveillance_by_bout(
     # Save figure
     fig = plt.gcf()
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "surveillance_probability_by_bout.pdf"
+        save_path = (
+            Path(config["project_path_full"]) / figures_dirname
+            / f"surveillance_probability_by_bout{filename_suffix}.pdf"
+        )
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 

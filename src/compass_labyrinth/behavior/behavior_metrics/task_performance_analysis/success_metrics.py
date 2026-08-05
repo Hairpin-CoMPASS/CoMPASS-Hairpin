@@ -169,6 +169,8 @@ def plot_success_rate(
     config: dict,
     summary_table: pd.DataFrame,
     palette: list = None,
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -229,7 +231,8 @@ def plot_success_rate(
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "cumulative_successful_bouts.pdf"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"cumulative_successful_bouts{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
@@ -359,10 +362,90 @@ def compute_binned_success_summary(
     return summary_df
 
 
+def compute_binned_success_summary_by_percentage(
+    df_all_csv: pd.DataFrame,
+    n_bins: int = 5,
+    valid_bout_threshold: int = 19,
+    optimal_path_regions: list[str] = ["entry_zone", "reward_path", "target_zone"],
+    target_zone: str = "target_zone",
+) -> pd.DataFrame:
+    """
+    Like compute_binned_success_summary(), but bins each session by percentage
+    of its OWN total frame count (e.g. first 20%, next 20%, ... for n_bins=5)
+    instead of a shared absolute frame range. A fixed absolute range cuts a
+    session out of later bins entirely once it runs out of rows, so shorter
+    sessions "fall short" fastest -- percentage bins instead let every session
+    contribute to every bin, comparing the same fraction of session progress.
+
+    Parameters
+    -----------
+    df_all_csv : pd.DataFrame
+        DataFrame with 'session', 'genotype', 'region', 'bout_id' columns --
+        one row per original frame, so each session's true total frame count
+        is available to compute percentage bin edges from.
+    n_bins : int
+        Number of equal-percentage segments per session (default 5 -> 20% each).
+    valid_bout_threshold : int
+        Minimum number of frames for a bout to be considered valid.
+    optimal_path_regions : list
+        Regions defining a perfect bout.
+    target_zone : str
+        Region considered as successful bout completion.
+
+    Returns
+    --------
+    pd.DataFrame
+        DataFrame summarizing binned successful bout metrics per session --
+        same output shape as compute_binned_success_summary(), with
+        'bout_num' holding the percentage (e.g. 20, 40, ...) instead of a
+        cumulative frame count.
+    """
+    summary_records = []
+    session_clusters = [x for _, x in df_all_csv.groupby("session")]
+
+    for session_subset in session_clusters:
+        n_rows = len(session_subset)
+        edges = [round(n_rows * b / n_bins) for b in range(n_bins + 1)]
+
+        for b in range(n_bins):
+            sess_sub = session_subset.iloc[edges[b] : edges[b + 1]]
+            bouts_in_session = [x for _, x in sess_sub.groupby("bout_id")]
+
+            sum_succ, sum_perfect, sum_valid_bouts = 0, 0, 0
+
+            for bout in bouts_in_session:
+                if len(bout) > valid_bout_threshold:
+                    sum_valid_bouts += 1
+                    if any(e in target_zone for e in bout["region"].to_list()):
+                        sum_succ += 1
+                        if set(bout["region"].unique()) == set(optimal_path_regions):
+                            sum_perfect += 1
+
+            summary_records.append(
+                {
+                    "session": session_subset.session.unique()[0],
+                    "genotype": session_subset["genotype"].unique()[0],
+                    "bout_num": round((b + 1) * 100 / n_bins),
+                    "no_of_bouts": len(bouts_in_session),
+                    "no_valid_bouts": sum_valid_bouts,
+                    "no_of_succ_bouts": sum_succ,
+                    "no_of_perfect_bouts": sum_perfect,
+                }
+            )
+
+    summary_df = pd.DataFrame(summary_records)
+    summary_df = summary_df[summary_df["no_of_bouts"] != 0]
+    summary_df["succ_bout_perc"] = (100 * summary_df["no_of_succ_bouts"]) / summary_df["no_valid_bouts"]
+    return summary_df
+
+
 def plot_binned_success(
     config: dict,
     summary_df: pd.DataFrame,
     palette: list[str] = None,
+    xlabel: str = "Time in maze",
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -378,6 +461,9 @@ def plot_binned_success(
         DataFrame containing summary statistics for each session.
     palette : list, optional
         Optional color palette for different genotypes.
+    xlabel : str
+        X-axis label -- "Time in maze" by default, pass e.g. "% of Session"
+        when summary_df came from compute_binned_success_summary_by_percentage().
     save_fig : bool, default True
         Whether to save the figure as a PDF.
     show_fig : bool, default True
@@ -410,13 +496,14 @@ def plot_binned_success(
     )
     plt.ylim(0, 110)
     plt.xticks(rotation=45)
-    plt.xlabel("Time in maze")
+    plt.xlabel(xlabel)
     plt.title("Successful Bout % over time across genotypes")
     plt.ylabel("% of Successful Bouts")
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "time_based_successful_bouts.pdf"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"time_based_successful_bouts{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 

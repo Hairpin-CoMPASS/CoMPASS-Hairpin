@@ -133,3 +133,21 @@ ADJACENCY_MATRIX = pd.read_csv(
 )
 
 NODES = range(0, 100)
+
+# ----------------PATH ORDER-------------------------#
+# Sequential position of every node along the single intended route (entry ->
+# reward_path -> target_zone -> overshoot terminal). Since there is no
+# branching, this is just the serpentine column walk from the module
+# docstring above: even columns top-to-bottom (row 0->9), odd columns
+# bottom-to-top (row 9->0). Used to detect backtracking -- the only form of
+# navigational "error" possible in a maze with no decision points, since a
+# mouse can retrace its steps but can never take a wrong turn.
+def _build_path_order():
+    order = []
+    for col in range(10):
+        rows = range(10) if col % 2 == 0 else range(9, -1, -1)
+        order.extend(col * 10 + row for row in rows)
+    return {node: idx for idx, node in enumerate(order)}
+
+
+PATH_ORDER = _build_path_order()

@@ -7,6 +7,7 @@ Goal:
     ├── Shannon entropy computation
 """
 
+import math
 import pandas as pd
 import numpy as np
 import seaborn as sns
@@ -146,6 +147,113 @@ def generate_region_heatmap_pivots(
     return pivot_dict
 
 
+def generate_region_heatmap_pivots_by_percentage(
+    df: pd.DataFrame,
+    zones: dict,
+    region_columns: list,
+    n_bins: int = 5,
+    region_lengths: dict | None = None,
+) -> dict:
+    """
+    Like generate_region_heatmap_pivots(), but bins each session by percentage
+    of its OWN total frame count (e.g. first 20%, next 20%, ... for n_bins=5)
+    instead of a shared absolute frame range. A fixed absolute range cuts a
+    session out of later bins entirely once it runs out of rows, so shorter
+    sessions "fall short" fastest -- percentage bins instead let sessions of
+    very different lengths be compared at the same fraction of session
+    progress, and every session contributes to every bin.
+
+    Parameters
+    -----------
+    df : pd.DataFrame
+        RAW (not zone-filtered) dataframe with 'session', 'genotype', and
+        'grid_number' columns -- one row per original frame, all grid cells
+        included, so each session's true total frame count is available to
+        compute percentage bin edges from.
+    zones : dict
+        {region_name: [grid_number, ...]} -- looked up per row's grid_number
+        to determine region membership within each percentage segment. Zones
+        may overlap; a shared cell counts toward every zone it belongs to
+        (checked independently per region, not a single cell->region lookup).
+    region_columns : list
+        Zone names (keys of `zones`) to include as heatmap rows, and their
+        plotting order.
+    n_bins : int
+        Number of equal-percentage segments per session (default 5 -> 20% each).
+    region_lengths : dict | None
+        {region_name: cell_count} used to normalize occupancy by region area,
+        same as generate_region_heatmap_pivots(). Defaults to
+        {region: len(zones[region]) for region in region_columns}.
+
+    Returns
+    -----------
+    pivot_dict : dict
+        {genotype: [pivot_df_bin0, pivot_df_bin1, ...]}, each pivot_df is
+        region x session -- same output shape as generate_region_heatmap_pivots().
+    """
+    if region_lengths is None:
+        region_lengths = {region: len(zones[region]) for region in region_columns}
+
+    pivot_dict = {}
+
+    for genotype in df.genotype.unique():
+        li_pivot_geno = []
+        df_geno = df[df.genotype == genotype]
+        session_clus_geno = [group for _, group in df_geno.groupby("session")]
+
+        grouped_bins = [[] for _ in range(n_bins)]
+        for df_subset in session_clus_geno:
+            n_rows = len(df_subset)
+            edges = [round(n_rows * b / n_bins) for b in range(n_bins + 1)]
+            for b in range(n_bins):
+                bin_subset = df_subset.iloc[edges[b] : edges[b + 1]]
+                if not bin_subset.empty:
+                    grouped_bins[b].append(bin_subset)
+
+        reg_datafr = []
+        for b in range(n_bins):
+            df_bin = pd.concat(grouped_bins[b], axis=0, ignore_index=True) if grouped_bins[b] else df.iloc[0:0]
+            datafr = pd.DataFrame(columns=["session"] + region_columns)
+            for sess in df_geno.session.unique():
+                df_sess = df_bin[df_bin.session == sess] if not df_bin.empty else df_bin
+                for region in region_columns:
+                    count = df_sess["grid_number"].isin(zones[region]).sum() if not df_sess.empty else 0
+                    datafr.loc[sess, region] = count
+                datafr.loc[sess, "session"] = sess
+            datafr.fillna(0, inplace=True)
+            datafr.set_index("session", inplace=True)
+            reg_datafr.append(datafr)
+
+        for j in range(len(reg_datafr)):
+            datafr_sub = reg_datafr[j].reset_index()
+            for region in region_columns:
+                region_len = region_lengths.get(region, 1) if region_lengths else 1
+                datafr_sub[region] /= region_len
+
+            melted = pd.melt(
+                datafr_sub,
+                id_vars="session",
+                value_vars=region_columns,
+                var_name="region",
+                value_name="value",
+            )
+            pivoted = pd.pivot_table(
+                melted,
+                index="region",
+                columns="session",
+                values="value",
+                aggfunc="mean",
+            )
+            col_sums = pivoted.sum(axis=0).replace(0, np.nan)
+            pivoted = pivoted.div(col_sums, axis=1)
+
+            li_pivot_geno.append(pivoted)
+
+        pivot_dict[genotype] = li_pivot_geno
+
+    return pivot_dict
+
+
 ##################################################################
 # Exclusion Criteria
 ###################################################################
@@ -227,6 +335,7 @@ def summarize_target_usage(
 def plot_target_usage_vs_frames(
     config: dict,
     summary_df: pd.DataFrame,
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -283,7 +392,8 @@ def plot_target_usage_vs_frames(
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "target_usage_vs_frames.png"
+        save_path = Path(config["project_path_full"]) / figures_dirname / "target_usage_vs_frames.png"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
@@ -349,6 +459,7 @@ def plot_target_usage_with_exclusions(
     config: dict,
     summary_df: pd.DataFrame,
     sessions_to_exclude: list,
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -430,7 +541,8 @@ def plot_target_usage_with_exclusions(
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "target_usage_vs_frames_exclusions.png"
+        save_path = Path(config["project_path_full"]) / figures_dirname / "target_usage_vs_frames_exclusions.png"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
@@ -495,6 +607,9 @@ def plot_region_heatmaps(
     vmax: float = 0.6,
     region_desired_order: list | None = None,
     cmap: str = "viridis",
+    bin_label_suffix: str = "",
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -524,6 +639,10 @@ def plot_region_heatmaps(
         Desired order of regions for the heatmap. If None, use default order.
     cmap : str
         Colormap name.
+    bin_label_suffix : str
+        Appended after each bin-range number in the per-bin title, e.g. "%"
+        for percentage-based bins (from generate_region_heatmap_pivots_by_percentage())
+        so titles read "0%-20%" instead of a bare, ambiguous "0-20".
     save_fig : bool
         Whether to save the figure.
     show_fig : bool
@@ -592,7 +711,9 @@ def plot_region_heatmaps(
 
         # Styling
         ax.set_title(
-            f"{group_name} | Bin {i+1} ({lower_lim + i * difference:,}–{lower_lim + (i+1) * difference:,})",
+            f"{group_name} | Bin {i+1} "
+            f"({lower_lim + i * difference:,}{bin_label_suffix}"
+            f"–{lower_lim + (i + 1) * difference:,}{bin_label_suffix})",
             fontsize=15,
             pad=8,
             weight="bold",
@@ -608,7 +729,8 @@ def plot_region_heatmaps(
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / f"region_heatmaps_{group_name}.pdf"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"region_heatmaps_{group_name}{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved at: {save_path}")
 
@@ -637,6 +759,9 @@ def plot_region_heatmaps_all_genotypes(
     spacing_w: float = 0.6,  # Wider horizontal space between genotypes
     spacing_h: float = 0.2,  # Tighter vertical space between bins
     show_colorbar: bool = True,
+    bin_label_suffix: str = "",
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -676,6 +801,10 @@ def plot_region_heatmaps_all_genotypes(
         Space between time-bin rows
     show_colorbar : bool
         If True, show colorbar in last column per row
+    bin_label_suffix : str
+        Appended after each bin-range number in the y-axis bin label, e.g. "%"
+        for percentage-based bins (from generate_region_heatmap_pivots_by_percentage())
+        so labels read "0%-20%" instead of a bare, ambiguous "0-20".
     save_fig : bool
         If True, save the figure
     show_fig : bool
@@ -739,6 +868,13 @@ def plot_region_heatmaps_all_genotypes(
                 linewidths=0.4,
                 linecolor="white",
                 cbar=(show_colorbar and j == n_genos - 1),
+                # Force one tick per row/column -- seaborn's default "auto"
+                # thins ticks out to avoid overlap once there are enough
+                # sessions, which then mismatches the explicit
+                # set_xticklabels/set_yticklabels calls below (which always
+                # pass one label per column/row) and raises a ValueError.
+                xticklabels=True,
+                yticklabels=True,
             )
             if show_colorbar and j == n_genos - 1:
                 ax.collections[0].colorbar.set_label(
@@ -753,7 +889,7 @@ def plot_region_heatmaps_all_genotypes(
             if j == 0:
                 bin_start = lower_lim + i * difference
                 bin_end = bin_start + difference
-                ax.set_ylabel(f"{bin_start}-{bin_end}", fontsize=11)
+                ax.set_ylabel(f"{bin_start}{bin_label_suffix}-{bin_end}{bin_label_suffix}", fontsize=11)
                 ax.set_yticklabels(pivot_tab.index, rotation=0, fontsize=9)
             else:
                 ax.set_ylabel("")
@@ -764,13 +900,28 @@ def plot_region_heatmaps_all_genotypes(
             ax.set_xticklabels(pivot_tab.columns, fontsize=9)
             ax.tick_params(axis="x", bottom=True)
 
-    fig.suptitle("Region Occupancy Density Heatmaps by Genotype & Bin", fontsize=17, weight="bold", y=1.01)
+    # Reserve a roughly constant ~0.6in gap between the subplot grid and the
+    # suptitle, instead of a flat top=0.95 fraction -- fig_h scales with
+    # n_bins, so a fixed fraction turns into many inches of blank space once
+    # there are enough time bins to make the figure tall. 0.6in (not 0.3in)
+    # because the top row's own per-genotype titles (fontsize=13) sit just
+    # above their axes too -- too small a gap makes them collide with the
+    # suptitle text instead of just leaving blank space.
+    title_gap_inches = 0.6
+    top = min(0.97, 1 - title_gap_inches / fig_h)
+    fig.suptitle(
+        "Region Occupancy Density Heatmaps by Genotype & Bin",
+        fontsize=17,
+        weight="bold",
+        y=top + title_gap_inches / fig_h,
+    )
 
-    plt.subplots_adjust(wspace=spacing_w, hspace=spacing_h, top=0.95, bottom=0.05, left=0.05, right=0.95)
+    plt.subplots_adjust(wspace=spacing_w, hspace=spacing_h, top=top, bottom=0.05, left=0.05, right=0.95)
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "region_heatmaps_all_genotypes.pdf"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"region_heatmaps{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved at: {save_path}")
 
@@ -861,6 +1012,8 @@ def plot_entropy_over_bins(
     entropy_df: pd.DataFrame,
     palette: list | None = None,
     ylim: tuple = (0, 5),
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -922,7 +1075,8 @@ def plot_entropy_over_bins(
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "shannon_entropy.pdf"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"shannon_entropy{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
@@ -942,6 +1096,8 @@ def plot_entropy_over_bins_zoomed(
     ylim: tuple = (0, 2),
     aspect: float = 2.0,
     height: float = 6,
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -1050,7 +1206,8 @@ def plot_entropy_over_bins_zoomed(
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "shannon_entropy_zoomed.pdf"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"shannon_entropy_zoomed{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
@@ -1252,6 +1409,8 @@ def plot_region_usage_over_bins(
     region_name: str,
     palette: list | None = None,
     ylim: tuple = (0, 1),
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -1299,13 +1458,14 @@ def plot_region_usage_over_bins(
     plt.yticks(size=12, color="black")
     plt.xlabel("Cumulative time in maze (frames)", size=15)
     plt.ylabel("Proportion of Usage", size=15)
-    plt.title(REGION_NAMES[region_name], fontsize=15, weight="bold")
+    plt.title(REGION_NAMES.get(region_name, region_name), fontsize=15, weight="bold")
     ax.set(yticks=np.arange(ylim[0], ylim[1] + 0.1, 0.1))
 
     # Save figure
     fig = ax.figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / f"{region_name}_prop_usage.pdf"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"{region_name}_prop_usage{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved at: {save_path}")
 
@@ -1327,29 +1487,50 @@ def plot_all_regions_usage_over_bins(
     bin_size: int = 10000,
     palette: list | None = None,
     ylim: tuple = (0, 1),
+    max_frames: int | None = None,
+    xlabel: str = "Frames",
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
 ):
     """
-    Plots usage over bins for multiple regions in a 2x3 subplot layout with a shared legend outside.
+    Plots usage over bins for multiple regions, one subplot per region, in a
+    grid sized to fit any number of regions, with a shared legend outside.
 
     Parameters
     -----------
     config : dict
         Configuration dictionary containing project settings.
     pivot_dict : dict
-        Dictionary with genotype keys and binned pivot tables.
+        Dictionary with genotype keys and binned pivot tables -- from either
+        generate_region_heatmap_pivots() (frame-based bins) or
+        generate_region_heatmap_pivots_by_percentage() (percentage bins);
+        this function only cares about bin index and bin_size for labeling.
     df_all_csv : pd.DataFrame
         DataFrame with session and genotype mapping.
     region_list : list
-        List of regions to plot (max 6).
+        List of regions to plot.
     bin_size : int
-        Size of each bin (in frames).
+        Size of each bin -- in frames for a frame-based pivot_dict, or in
+        percentage points (e.g. 100 // n_bins) for a percentage-based one.
     palette : list or dict
         Optional Seaborn color palette for genotypes.
     ylim : tuple
-        Y-axis limits.
+        Y-axis limits -- (0, 1) by default; narrow it (e.g. (0, 0.3)) to zoom
+        in on low-usage regions, or widen past 1 isn't meaningful (usage is a
+        proportion) but the max can be lowered to crop outlier spikes.
+    max_frames : int | None
+        Drop bins beyond this value (compared against the 'bin' column, i.e.
+        bin_size * bin_index) before plotting -- lets you crop out later bins
+        where few sessions still have data, same idea as Plot 2's
+        cutoff_bin/zoomed view. None (default) shows every bin in pivot_dict.
+        For a percentage-based pivot_dict, this is a max percentage instead
+        of a max frame count (whatever scale bin_size is already in).
+    xlabel : str
+        X-axis label -- "Frames" by default, pass e.g. "% of Session" when
+        pivot_dict came from generate_region_heatmap_pivots_by_percentage().
     save_fig : bool
         Whether to save the figure.
     show_fig : bool
@@ -1362,8 +1543,12 @@ def plot_all_regions_usage_over_bins(
     None | plt.Figure
         The figure object if return_fig is True, otherwise None.
     """
-    fig, axes = plt.subplots(2, 3, figsize=(18, 10), sharex=True, sharey=True)
-    axes = axes.flatten()
+    n_regions = len(region_list)
+    n_cols = math.ceil(n_regions**0.5)
+    n_rows = math.ceil(n_regions / n_cols)
+
+    fig, axes = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 5 * n_rows), sharex=True, sharey=True)
+    axes = np.atleast_1d(axes).flatten()
 
     legend_handles = None
     legend_labels = None
@@ -1373,6 +1558,8 @@ def plot_all_regions_usage_over_bins(
 
         # Compute region usage
         region_data = compute_region_usage_over_bins(pivot_dict, df_all_csv, region, bin_size)
+        if max_frames is not None:
+            region_data = region_data[region_data["bin"] <= max_frames]
 
         # Plot with seaborn
         plot = sns.pointplot(
@@ -1386,8 +1573,8 @@ def plot_all_regions_usage_over_bins(
             ax=ax,
         )
 
-        ax.set_title(REGION_NAMES[region], fontsize=14, weight="bold")
-        ax.set_xlabel("Frames", fontsize=12)
+        ax.set_title(REGION_NAMES.get(region, region), fontsize=14, weight="bold")
+        ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Usage Proportion", fontsize=12)
         ax.set_ylim(ylim)
         ax.tick_params(labelsize=10)
@@ -1398,8 +1585,9 @@ def plot_all_regions_usage_over_bins(
 
         ax.get_legend().remove()  # Remove legend from all subplots
 
-    # Remove unused subplots if < 6 regions
-    for j in range(len(region_list), 6):
+    # Remove unused subplots (grid is sized to fit n_regions, so there's at
+    # most n_cols - 1 leftover slots in the last row)
+    for j in range(n_regions, len(axes)):
         fig.delaxes(axes[j])
 
     # Shared legend outside to the right
@@ -1418,7 +1606,8 @@ def plot_all_regions_usage_over_bins(
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / "figures" / "all_regions_prop_usage.pdf"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"all_regions_prop_usage{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved at: {save_path}")
 
