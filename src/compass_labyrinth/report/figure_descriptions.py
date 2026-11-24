@@ -22,7 +22,8 @@ showing all of them at once. The set of comparison keys and their labels for
 -- so a future project with different genotype labels needs no changes here.
 """
 
-REPORT_TITLE = "E3E4_Hairpin_01"
+# Fallback only: the report uses config.yaml report_title, else project_name
+REPORT_TITLE = "CoMPASS analysis report"
 
 # Reused verbatim across several steps so the wording of a shared concept
 # doesn't drift between them.
@@ -44,16 +45,13 @@ TIME_BINS_ITEM = [
     "% of session: each session's analyzed frames split into 5 equal parts in frame order (0-20%, ..., 80-100%), so every mouse fills every column.",
     "Frames: analyzed frames 0-10k, 10k-20k, ..., 40k-50k of each session; a session shorter than 50k frames only fills the earlier columns (\"n=X of Y\" under a panel = mice with frames in that bin), and frames past 50k are left out (about a quarter of this dataset's frames).",
     "one column per time bin, one row per genotype group (6a, 6b, 7, 7b: one figure per direction; 5f: backtrack rows, then re-entry rows); same color scale as the all-frames maps.",
-    "difference rows at the bottom: second group minus first per bin, cell by cell (same pairs as the all-frames maps: B − A, or E3NLF − E3, E4NLF − E4, E4 − E3, E4NLF − E3NLF), on a blue-white-red scale centered at 0 with one limit per figure (95th percentile of its differences); a cell is grey when either group is missing there.",
+    "difference rows at the bottom: second group minus first per bin, cell by cell (same pairs as the all-frames maps: B − A, or for groups A, B, C, D: B − A, D − C, C − A, D − B), on a blue-white-red scale centered at 0 with one limit per figure (95th percentile of its differences); a cell is grey when either group is missing there.",
     "per-mouse maps need >= 10 frames (6a/6b, 7, 7b) or >= 3 passes (5f) per mouse in that cell and bin (a bin has about a fifth of the frames); 1-1f pool the group's frames, no minimum.",
 ]
 
 
-COMPARISON_BULLETS = [
-    "the 4 individual genotypes (E3, E3NLF, E4, E4NLF) side by side.",
-    "pooled WT (E3 + E4) vs. NLF (E3NLF + E4NLF).",
-    "pooled APOE3 (E3 + E3NLF) vs. APOE4 (E4 + E4NLF).",
-]
+# Placeholder: build.py replaces it with one bullet per comparison in the project's config.yaml
+COMPARISON_BULLETS = ["(filled in from config.yaml comparisons / genotype_sets)"]
 FDR_PAIRWISE_BIN = (
     "FDR-corrected pairwise t-tests between genotypes, run separately in each time bin, "
     "in the Statistics table below."
@@ -122,7 +120,7 @@ PIPELINES = {
             {
                 "folder": "plot3_all_regions_usage",
                 "title": "3 All regions overlay",
-                "summary": "All region-usage proportions (zones excluding the entry corridor) overlaid on a single plot across time bins, comparing pooled WT vs. NLF.",
+                "summary": "All region-usage proportions (zones excluding the entry corridor) overlaid on a single plot across time bins, comparing the genotype groups.",
                 "items": [
                     ("X axis", "cumulative frames in the session (time bins), capped at the longest common session length."),
                     ("Panels", "one subplot per region."),
@@ -150,9 +148,9 @@ PIPELINES = {
             {
                 "folder": "plot4_success_rate",
                 "title": "4 Success rate (cumulative)",
-                "summary": "Cumulative percentage of bouts that reached the target zone before returning to the entry zone, WT vs. NLF.",
+                "summary": "Cumulative percentage of bouts that reached the target zone before returning to the entry zone, by genotype group.",
                 "items": [
-                    ("X axis", "genotype group (WT, NLF)."),
+                    ("X axis", "genotype group."),
                     ("Y axis", "% of bouts, over the whole session, that reached the target zone."),
                     ("Normalization", "by bout count, not zone size -- successful bouts ÷ valid bouts (longer than 20 frames) in that session, so sessions with more or fewer bouts are comparable."),
                     ("Points", "bar = group mean ± SE; one dot per session overlaid."),
@@ -163,7 +161,7 @@ PIPELINES = {
             {
                 "folder": "plot5_time_based_success",
                 "title": "5 Success rate (time bins)",
-                "summary": "Percentage of successful bouts within sequential time bins, WT vs. NLF.",
+                "summary": "Percentage of successful bouts within sequential time bins, by genotype group.",
                 "items": [
                     ("X axis", "cumulative frames in the session (time bins)."),
                     ("Y axis", "% of bouts in that bin that reached the target zone."),
@@ -226,7 +224,7 @@ PIPELINES = {
                 "summary": "Spatial heatmap of HMM state proportion per maze grid cell -- the Slow / Surveillance state's (HMM state 1) share of frames -- with every genotype group overlaid in one figure.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups: the NLF effect within each APOE genotype (E3NLF \u2212 E3, E4NLF \u2212 E4) and the APOE4 effect within WT and NLF (E4 \u2212 E3, E4NLF \u2212 E3NLF)."),
+                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups (A, B, C, D in the comparison's order): each row's difference on its right (B \u2212 A, D \u2212 C) and each column's underneath (C \u2212 A, D \u2212 B)."),
                     ("Time bins", TIME_BINS_ITEM),
                     ("Zone set", "none (default) = the per-cell map; choosing a zone set (e.g. 10_rows) shows the same measure pooled per zone instead -- each zone colored by its value over all of the group's frames there and labeled with it; cells outside the set are hatched grey."),
                     ("Layout", "the actual 10x10 hairpin maze grid, one subplot per genotype in the chosen comparison; the reward/target zone is outlined."),
@@ -245,7 +243,7 @@ PIPELINES = {
                 "summary": "Spatial heatmap of mean velocity per maze grid cell, with every genotype group overlaid in one figure.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups: the NLF effect within each APOE genotype (E3NLF \u2212 E3, E4NLF \u2212 E4) and the APOE4 effect within WT and NLF (E4 \u2212 E3, E4NLF \u2212 E3NLF)."),
+                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups (A, B, C, D in the comparison's order): each row's difference on its right (B \u2212 A, D \u2212 C) and each column's underneath (C \u2212 A, D \u2212 B)."),
                     ("Time bins", TIME_BINS_ITEM),
                     ("Zone set", "none (default) = the per-cell map; choosing a zone set (e.g. 10_rows) shows the same measure pooled per zone instead -- each zone colored by its value over all of the group's frames there and labeled with it; cells outside the set are hatched grey."),
                     ("Layout", "the actual 10x10 hairpin maze grid, one subplot per genotype in the chosen comparison; the reward/target zone is outlined."),
@@ -263,9 +261,9 @@ PIPELINES = {
                 "summary": "Mean speed of the sternum relative to the maze, per grid cell, by genotype group -- the same measure as Plot 1b, for the sternum instead of the belly.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups: the NLF effect within each APOE genotype (E3NLF \u2212 E3, E4NLF \u2212 E4) and the APOE4 effect within WT and NLF (E4 \u2212 E3, E4NLF \u2212 E3NLF)."),
+                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups (A, B, C, D in the comparison's order): each row's difference on its right (B \u2212 A, D \u2212 C) and each column's underneath (C \u2212 A, D \u2212 B)."),
                     ("Time bins", TIME_BINS_ITEM),
-                    ("Layout", "as Plot 1b: one maze panel per genotype group, same 0-300 color scale; frames assigned to cells by the belly."),
+                    ("Layout", "as Plot 1b: one maze panel per genotype group, same color scale; frames assigned to cells by the belly."),
                     ("How it's calculated", "same rules as the pipeline's velocity: only frames with sternum likelihood > 0.6 are used (94% of analyzed frames), and speed = distance between consecutive kept rows x 5 fps."),
                     ("Sternum vs. belly", "the sternum is detected on more frames than the belly, but its position is less precise (median frame-to-frame jitter 5.4 vs. 3.6 px, higher in every session), and it moves with the shoulders and head; so its speed runs higher (median 47 vs. 25) partly from tracking noise. Belly speed (Plot 1b) is the cleaner measure of body locomotion."),
                     ("Normalization", "NOT normalized -- raw speed; an average, so cell size doesn't inflate it."),
@@ -280,7 +278,7 @@ PIPELINES = {
                 "summary": "Mean speed of the nose relative to the maze, per grid cell, with every genotype group side by side -- like Plot 1b, but for the nose.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups: the NLF effect within each APOE genotype (E3NLF \u2212 E3, E4NLF \u2212 E4) and the APOE4 effect within WT and NLF (E4 \u2212 E3, E4NLF \u2212 E3NLF)."),
+                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups (A, B, C, D in the comparison's order): each row's difference on its right (B \u2212 A, D \u2212 C) and each column's underneath (C \u2212 A, D \u2212 B)."),
                     ("Time bins", TIME_BINS_ITEM),
                     ("Layout", "the 10x10 hairpin maze grid, one panel per genotype group; the reward/target zone is outlined. Frames are assigned to cells by the belly, the point the whole pipeline tracks."),
                     ("Color", "mean nose speed of the frames in that cell (tracking units per second); values are annotated on each cell."),
@@ -298,7 +296,7 @@ PIPELINES = {
                 "summary": "Mean speed of the nose relative to the mouse's own body -- head movement with the body's movement and turning removed -- per grid cell, by genotype group.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups: the NLF effect within each APOE genotype (E3NLF \u2212 E3, E4NLF \u2212 E4) and the APOE4 effect within WT and NLF (E4 \u2212 E3, E4NLF \u2212 E3NLF)."),
+                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups (A, B, C, D in the comparison's order): each row's difference on its right (B \u2212 A, D \u2212 C) and each column's underneath (C \u2212 A, D \u2212 B)."),
                     ("Time bins", TIME_BINS_ITEM),
                     ("Layout", "as Plot 1d: one maze panel per genotype group, frames assigned to cells by the belly."),
                     ("Body frame", "origin = sternum; forward axis = from the tail base to the sternum. Each frame, the nose's position relative to the sternum is rotated into this frame (forward / sideways), so walking or turning on its own doesn't move it -- only the head moving relative to the body does. The sternum is used rather than the belly because the tail base -> sternum axis is about twice as long (~96 vs. ~44 px) and the sternum sits closer to the nose (~49 vs. ~97 px), so tracking wobble tilts the frame much less."),
@@ -317,7 +315,7 @@ PIPELINES = {
                 "summary": "How far the head is turned away from the body axis, per grid cell, by genotype group -- either side counts.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups: the NLF effect within each APOE genotype (E3NLF \u2212 E3, E4NLF \u2212 E4) and the APOE4 effect within WT and NLF (E4 \u2212 E3, E4NLF \u2212 E3NLF)."),
+                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. Two groups: B \u2212 A centered underneath. Four groups (A, B, C, D in the comparison's order): each row's difference on its right (B \u2212 A, D \u2212 C) and each column's underneath (C \u2212 A, D \u2212 B)."),
                     ("Time bins", TIME_BINS_ITEM),
                     ("Layout", "as Plot 1d: one maze panel per genotype group; frames assigned to cells by the belly."),
                     ("Head angle", "the direction of the nose from the sternum, relative to the body axis (tail base -> sternum): 0° = head straight ahead, 90° = turned fully to the side. Absolute = the size of the turn, ignoring which side."),
@@ -528,7 +526,7 @@ PIPELINES = {
                 "summary": "Cell by cell, how often a pass through the cell turns around there -- turning back while going deeper (backtrack) and turning in again while coming back (re-entry) -- on the path, at the reward and in the overshoot.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "to the right of each row: second group minus first for that probability, cell by cell, on a blue-white-red scale centered at 0 (red = more turns in the second group, blue = fewer, white = about the same). Two groups: B \u2212 A. Four groups: E3NLF \u2212 E3, E4NLF \u2212 E4, E4 \u2212 E3, E4NLF \u2212 E3NLF. Both rows share one color limit (95th percentile of their differences)."),
+                    ("Difference panels", "to the right of each row: second group minus first for that probability, cell by cell, on a blue-white-red scale centered at 0 (red = more turns in the second group, blue = fewer, white = about the same). Two groups: B \u2212 A. Four groups: B \u2212 A, D \u2212 C, C \u2212 A, D \u2212 B (groups A, B, C, D in the comparison's order). Both rows share one color limit (95th percentile of their differences)."),
                     ("Time bins", TIME_BINS_ITEM),
                     ("Pass", "one stay in a cell, from entering to leaving it; it enters with the direction of travel of the frame before (Plot 5's direction, judged over ±2 s, pauses joined to the movement they interrupt)."),
                     ("Rows", [
@@ -552,7 +550,7 @@ PIPELINES = {
                 "summary": "Plot 1's Slow / Surveillance maze heatmap split by direction of travel -- going in, coming back, backtrack, re-entry, or coming back minus going in -- pick one with the Direction selector.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "to the right of each row: second group minus first for that row, cell by cell, on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same). Two groups: B \u2212 A. Four groups: E3NLF \u2212 E3, E4NLF \u2212 E4, E4 \u2212 E3, E4NLF \u2212 E3NLF. Color limit: the 95th percentile of the differences; the Coming back \u2212 going in map has no group-difference panels."),
+                    ("Difference panels", "to the right of each row: second group minus first for that row, cell by cell, on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same). Two groups: B \u2212 A. Four groups: B \u2212 A, D \u2212 C, C \u2212 A, D \u2212 B (groups A, B, C, D in the comparison's order). Color limit: the 95th percentile of the differences; the Coming back \u2212 going in map has no group-difference panels."),
                     ("Time bins", TIME_BINS_ITEM),
                     TRAVEL_ITEM,
                     ("Panels", "one per genotype group, then the group differences; Coming back \u2212 going in = each mouse's own difference, averaged. The reward is outlined in gold."),
@@ -577,7 +575,7 @@ PIPELINES = {
                 "summary": "Plot 1b's belly-speed maze heatmap split by direction of travel -- going in, coming back, backtrack, re-entry, or coming back minus going in -- pick one with the Direction selector.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "to the right of each row: second group minus first for that row, cell by cell, on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same). Two groups: B \u2212 A. Four groups: E3NLF \u2212 E3, E4NLF \u2212 E4, E4 \u2212 E3, E4NLF \u2212 E3NLF. Color limit: the 95th percentile of the differences; the Coming back \u2212 going in map has no group-difference panels."),
+                    ("Difference panels", "to the right of each row: second group minus first for that row, cell by cell, on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same). Two groups: B \u2212 A. Four groups: B \u2212 A, D \u2212 C, C \u2212 A, D \u2212 B (groups A, B, C, D in the comparison's order). Color limit: the 95th percentile of the differences; the Coming back \u2212 going in map has no group-difference panels."),
                     ("Time bins", TIME_BINS_ITEM),
                     TRAVEL_ITEM,
                     ("Panels", "one per genotype group, then the group differences; Coming back \u2212 going in = each mouse's own difference, averaged."),
@@ -633,7 +631,7 @@ PIPELINES = {
                 "summary": "Which side the head points to relative to the body, cell by cell, for each direction of travel (going in, coming back, backtrack, re-entry) -- pick one with the Direction selector.",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. No arrows on the difference panels. Two groups: B \u2212 A underneath. Four groups (second row): the NLF effect within each APOE genotype (E3NLF \u2212 E3, E4NLF \u2212 E4) and the APOE4 effect within WT and NLF (E4 \u2212 E3, E4NLF \u2212 E3NLF)."),
+                    ("Difference panels", "second group minus first, cell by cell (or zone by zone), on a blue-white-red scale centered at 0 (red = higher in the second group, blue = lower, white = about the same), sized to the 95th percentile of the differences. No arrows on the difference panels. Two groups: B \u2212 A underneath. Four groups (second row): B \u2212 A, D \u2212 C, C \u2212 A, D \u2212 B (groups A, B, C, D in the comparison's order)."),
                     ("Time bins", TIME_BINS_ITEM),
                     TRAVEL_ITEM,
                     ("Why separate", "the directions are kept apart because the mouse's right points to opposite sides of the maze when it travels the other way, so pooling them would cancel the lean."),
@@ -659,7 +657,7 @@ PIPELINES = {
                 "summary": "Plot 7 with the sign dropped: each cell colored by the absolute value of its mean signed head angle -- how strongly the head leans, ignoring the side -- for each direction of travel (pick one with the Direction selector).",
                 "items": [
                     ("Comparison", COMPARISON_BULLETS),
-                    ("Difference panels", "|second group| minus |first group| of the cell's signed mean -- red = the head leans more strongly in the second group, blue = less, white = about the same -- on a blue-white-red scale centered at 0. Two groups: B \u2212 A underneath; four groups: E3NLF \u2212 E3, E4NLF \u2212 E4, E4 \u2212 E3, E4NLF \u2212 E3NLF in a second row. No arrows on the difference panels."),
+                    ("Difference panels", "|second group| minus |first group| of the cell's signed mean -- red = the head leans more strongly in the second group, blue = less, white = about the same -- on a blue-white-red scale centered at 0. Two groups: B \u2212 A underneath; four groups: B \u2212 A, D \u2212 C, C \u2212 A, D \u2212 B (groups A, B, C, D in the comparison's order) in a second row. No arrows on the difference panels."),
                     ("Time bins", TIME_BINS_ITEM),
                     ("Color", "the absolute value of Plot 7's number: |mean signed head angle| (e.g. -12 in Plot 7 is 12 here), with the value in the cell's bottom-right corner; same 0-30 deg range as Plot 7."),
                     ("Arrows", "as Plot 7: grey arrow = the body (tail base -> sternum), black arrow = the head (sternum -> nose), turned by the signed angle -- so the arrows show which side the head leans, while the color shows how strongly."),

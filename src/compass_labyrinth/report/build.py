@@ -26,7 +26,7 @@ import pymupdf
 import yaml
 from PIL import Image
 
-from compass_labyrinth.report.figure_descriptions import PIPELINES, REPORT_TITLE
+from compass_labyrinth.report.figure_descriptions import COMPARISON_BULLETS, PIPELINES, REPORT_TITLE
 from compass_labyrinth.report.prism_tables import build_prism_store, detect_key, zone_set_of
 import compass_labyrinth.source_data as source_data
 import compass_labyrinth.figure_labels as figure_labels
@@ -35,6 +35,22 @@ import compass_labyrinth.figure_labels as figure_labels
 def _comparison_label(set_name: str, genotype_sets: dict) -> str:
     labels = list(genotype_sets[set_name].keys())
     return " vs. ".join(labels) if len(labels) <= 2 else f"{len(labels)} genotypes ({', '.join(labels)})"
+
+
+def _comparison_bullets(config: dict) -> list[str]:
+    """One "Comparison" bullet per config.yaml comparison: its groups and the raw genotypes pooled into each."""
+    sets = config.get("genotype_sets") or {}
+    out = []
+    for c in config.get("comparisons") or []:
+        groups = sets.get(c) or {}
+        parts = [g if list(raw) == [g] else f"{g} ({' + '.join(raw)})" for g, raw in groups.items()]
+        out.append(f"{_comparison_label(c, sets)}: " + ", ".join(parts) + ".")
+    return out
+
+
+def _project_items(items: list, bullets: list[str]) -> list:
+    """The step's description items, with the Comparison placeholder filled in from config.yaml."""
+    return [(label, bullets) if value is COMPARISON_BULLETS else (label, value) for label, value in items]
 
 
 def _load_comparisons(project_path: Path) -> tuple[tuple[str, ...], dict[str, str]]:
@@ -331,7 +347,8 @@ def _build_data(project_path: Path, images: dict) -> dict:
                 {
                     "id": folder,
                     "title": step_cfg["title"],
-                    "about": {"summary": step_cfg["summary"], "items": step_cfg.get("items", [])},
+                    "about": {"summary": step_cfg["summary"],
+                              "items": _project_items(step_cfg.get("items", []), _comparison_bullets(config))},
                     "items": items,
                     "stats": stats,
                     "comparisons": comparisons,
@@ -364,7 +381,7 @@ def _build_data(project_path: Path, images: dict) -> dict:
     return {
         "zoneInfo": zone_info,
         "projectName": project_path.parent.name if project_path.name == "compass_analysis" else project_path.name,
-        "title": REPORT_TITLE,
+        "title": config.get("report_title") or config.get("project_name") or REPORT_TITLE,
         "generated": datetime.now().strftime("%Y-%m-%d %H:%M"),
         "mazeSvg": maze_svg,
         "pipelines": pipelines,
