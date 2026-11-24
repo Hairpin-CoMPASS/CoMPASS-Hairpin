@@ -19,6 +19,9 @@ from statsmodels.stats.anova import AnovaRM
 from statsmodels.stats.multitest import multipletests
 from statsmodels.stats.multicomp import pairwise_tukeyhsd
 
+import compass_labyrinth.source_data as source_data
+from compass_labyrinth.utils import group_sample_sizes, append_n_to_legend, genotype_order
+
 
 ##################################################################
 ## Plot 5: Cumulative Successful Bout Percentage
@@ -43,23 +46,7 @@ def assign_bout_indices_from_entry_node(
     pd.DataFrame
         DataFrame with an added 'bout_id' column.
     """
-    all_sessions = []
-
-    for _, session_data in navigation_df.groupby("session"):
-        session_data = session_data.reset_index(drop=True).copy()
-        session_data["bout_id"] = 0
-        bout_counter = 1
-
-        for row_idx in range(len(session_data)):
-            if session_data.loc[row_idx, "grid_number"] != delimiter_node:
-                session_data.loc[row_idx, "bout_id"] = bout_counter
-            else:
-                session_data.loc[row_idx, "bout_id"] = 0
-                bout_counter += 1
-
-        all_sessions.append(session_data)
-
-    return pd.concat(all_sessions, ignore_index=True)
+    return _assign_bout_ids(navigation_df, [delimiter_node])
 
 
 def assign_bout_indices_from_entry_zone(
@@ -88,23 +75,20 @@ def assign_bout_indices_from_entry_zone(
     pd.DataFrame
         DataFrame with an added 'bout_id' column.
     """
-    all_sessions = []
+    return _assign_bout_ids(navigation_df, delimiter_nodes)
 
-    for _, session_data in navigation_df.groupby("session"):
-        session_data = session_data.reset_index(drop=True).copy()
-        session_data["bout_id"] = 0
-        bout_counter = 1
 
-        for row_idx in range(len(session_data)):
-            if session_data.loc[row_idx, "grid_number"] not in delimiter_nodes:
-                session_data.loc[row_idx, "bout_id"] = bout_counter
-            else:
-                session_data.loc[row_idx, "bout_id"] = 0
-                bout_counter += 1
-
-        all_sessions.append(session_data)
-
-    return pd.concat(all_sessions, ignore_index=True)
+def _assign_bout_ids(navigation_df: pd.DataFrame, delimiter_nodes) -> pd.DataFrame:
+    """Within each session (rows in their original order): a delimiter row
+    gets bout_id 0 and every other row gets 1 + the number of delimiter rows
+    before it -- i.e. a new bout starts after each visit to the delimiter.
+    Vectorized (a per-session cumulative count) instead of a per-row Python
+    loop; rows come back grouped by session in sorted order, as before."""
+    df = navigation_df.sort_values("session", kind="stable").reset_index(drop=True)
+    is_delim = df["grid_number"].isin(delimiter_nodes)
+    seen = is_delim.astype("int64").groupby(df["session"]).cumsum()
+    df["bout_id"] = np.where(is_delim, 0, 1 + seen).astype("int64")
+    return df
 
 
 def summarize_bout_success_by_session(
@@ -204,6 +188,8 @@ def plot_success_rate(
         x="genotype",
         y="success_rate",
         hue="genotype",
+        hue_order=genotype_order(summary_table["genotype"]),
+        order=genotype_order(summary_table["genotype"]),
         data=summary_table,
         errorbar="se",
         width=0.7,
@@ -221,6 +207,14 @@ def plot_success_rate(
     ax.set_ylabel("% of Successful Bouts", fontsize=13)
     ax.set(ylim=(0, 100))
 
+    # genotype has no legend here (it's the x-axis, not a hue) -- state each
+    # group's N in its tick label instead, e.g. "E3" -> "E3 (n=12)". Reset
+    # the ticks via get_xticks() first so set_xticklabels doesn't warn about
+    # relabeling without a fixed locator.
+    counts = group_sample_sizes(summary_table, "genotype")
+    ax.set_xticks(ax.get_xticks())
+    ax.set_xticklabels([f"{t.get_text()} (n={counts.get(t.get_text(), '?')})" for t in ax.get_xticklabels()])
+
     ax.spines["top"].set_visible(False)
     ax.spines["right"].set_visible(False)
     ax.tick_params(width=2.5, color="black")
@@ -233,12 +227,19 @@ def plot_success_rate(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"cumulative_successful_bouts{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "sessions" -- one row per session, shared with every other
+        # session-level metric (target-zone usage, etc.) instead of its own
+        # narrow sheet.
+        source_data.record(summary_table)
+        source_data.flush("sessions", figure=save_path.stem)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -487,6 +488,7 @@ def plot_binned_success(
         x="bout_num",
         y="succ_bout_perc",
         hue="genotype",
+        hue_order=genotype_order(summary_df["genotype"]),
         data=summary_df,
         errorbar="se",
         kind="point",
@@ -494,6 +496,7 @@ def plot_binned_success(
         aspect=1.9,
         palette=palette,
     )
+    append_n_to_legend(ax._legend, group_sample_sizes(summary_df, "genotype"))
     plt.ylim(0, 110)
     plt.xticks(rotation=45)
     plt.xlabel(xlabel)
@@ -504,12 +507,22 @@ def plot_binned_success(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"time_based_successful_bouts{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "sessions_x_bins" -- one row per session per time bin, shared with
+        # every other session x bin metric (entropy, etc.) instead of its
+        # own narrow sheet. Keeps its own "bout_num" column name rather than
+        # aliasing to entropy's "bin" -- bout_num holds a raw frame count
+        # here but a percentage for the _pct variant, so collapsing both
+        # into one column would blur two different scales together.
+        source_data.record(summary_df)
+        source_data.flush("sessions_x_bins", figure=save_path.stem)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:

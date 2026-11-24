@@ -6,7 +6,14 @@ import yaml
 import os
 from movement.io import load_poses
 
-from .utils import load_project, update_dataset_with_grid_positions
+from .utils import (
+    load_project,
+    update_dataset_with_grid_positions,
+    build_genotype_groups,
+    build_zone_column,
+    group_sample_sizes,
+    append_n_to_legend,
+)
 from .behavior.pose_estimation.dlc_utils import (
     import_cohort_metadata,
     validate_metadata,

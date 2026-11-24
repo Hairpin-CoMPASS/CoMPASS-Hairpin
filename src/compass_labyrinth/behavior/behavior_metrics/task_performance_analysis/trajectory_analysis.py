@@ -20,6 +20,9 @@ from math import ceil, sqrt
 from .success_metrics import assign_bout_indices_from_entry_node, assign_bout_indices_from_entry_zone
 from compass_labyrinth.constants import PATH_ORDER
 
+import compass_labyrinth.source_data as source_data
+from compass_labyrinth.utils import genotype_order as _config_genotype_order
+
 
 ##################################################################
 # Plot 7: Deviation from Reward Path & Velocity Analysis
@@ -350,6 +353,8 @@ def plot_deviation_velocity_fit(
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -480,6 +485,8 @@ def plot_deviation_velocity_all(
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -782,6 +789,7 @@ def plot_zone_occupancy_velocity_fit(
     title_suffix: str = "",
     show_velocity: bool = True,
     ylim: tuple = (0, 1),
+    occupancy_df: pd.DataFrame | None = None,
     filename_suffix: str = "",
     figures_dirname: str = "figures",
     save_fig: bool = True,
@@ -835,6 +843,11 @@ def plot_zone_occupancy_velocity_fit(
         are bounded in [0, 1], but real values are often much smaller (e.g.
         under 0.1), so narrow this (e.g. (0, 0.1)) to use the plot area
         better and see more detail in the lines/CI bands.
+    occupancy_df : pd.DataFrame | None
+        One of process_zone_occupancy_velocity()'s per-bout return values
+        (df_zones or df_bouts), already filtered to this genotype -- if
+        given, its unique 'session' count is appended to the title as
+        "(n=<count>)". None (default) leaves the title as-is.
     save_fig : bool, default True
         Whether to save the figure as a PDF.
     show_fig : bool, default True
@@ -852,32 +865,48 @@ def plot_zone_occupancy_velocity_fit(
     plt.figure(figsize=(12, 8))
     ax = plt.gca()
 
+    # Built as (smoothed_handle, fit_handle) pairs, one per zone (+ velocity
+    # last) -- so the legend below can lay them out two per row (smoothed
+    # left, fit right, same zone) instead of leaving matplotlib's default
+    # fill order to interleave them however it likes.
+    legend_pairs = []
     x_max_candidates = [vel_smooth["ind_no"].max()] if show_velocity else []
     for zone, color in zip(zone_names, colors):
         z_smooth = smooth_by_zone[zone]
         x_max_candidates.append(z_smooth["ind_no"].max())
 
         ax.fill_between(z_smooth["ind_no"], z_smooth["ci_lower"], z_smooth["ci_upper"], color=color, alpha=0.2)
-        ax.plot(
+        (smoothed_line,) = ax.plot(
             z_smooth["ind_no"], z_smooth["occupancy_smooth"],
-            linewidth=2, alpha=0.9, color=color, label=f"Smoothed {zone} Occupancy",
+            linewidth=2, alpha=0.9, color=color, label=f"Smoothed ({zone})",
         )
         x_fit = np.linspace(z_smooth["ind_no"].min(), z_smooth["ind_no"].max(), 1000)
         y_fit = exp_decreasing(x_fit, *params_by_zone[zone])
-        ax.plot(x_fit, y_fit, "--", color=color, alpha=0.6, label=f"Exponential Fit ({zone})")
+        (fit_line,) = ax.plot(x_fit, y_fit, "--", color=color, alpha=0.6, label=f"Exponential Fit ({zone})")
+        legend_pairs.append((smoothed_line, fit_line))
 
     if show_velocity:
         ax.fill_between(vel_smooth["ind_no"], vel_smooth["ci_lower"], vel_smooth["ci_upper"], color="black", alpha=0.15)
-        ax.plot(
+        (vel_line,) = ax.plot(
             vel_smooth["ind_no"], vel_smooth["velocity_smooth_normalized"],
-            linewidth=2, alpha=0.9, color="black", label="Normalized Smoothed Velocity",
+            linewidth=2, alpha=0.9, color="black", label="Smoothed (Velocity)",
         )
         x_fit_vel = np.linspace(vel_smooth["ind_no"].min(), vel_smooth["ind_no"].max(), 1000)
         y_fit_vel = exp_decreasing(x_fit_vel, *params_vel)
-        ax.plot(x_fit_vel, y_fit_vel, "--", color="gray", label="Exponential Fit (Velocity)")
+        (vel_fit_line,) = ax.plot(x_fit_vel, y_fit_vel, "--", color="gray", label="Exponential Fit (Velocity)")
+        legend_pairs.append((vel_line, vel_fit_line))
+
+    # matplotlib's legend(ncol=2) fills column-major (the whole first column
+    # top-to-bottom, then the second) -- so to get "left column = Smoothed,
+    # right column = Exponential Fit, same row = same zone", every Smoothed
+    # handle must come first (in zone order), then every Fit handle in that
+    # SAME zone order, not interleaved pair by pair.
+    legend_handles = [pair[0] for pair in legend_pairs] + [pair[1] for pair in legend_pairs]
+    legend_labels = [h.get_label() for h in legend_handles]
 
     title_metric = "Zone Occupancy and Velocity" if show_velocity else "Zone Occupancy"
-    plt.title(f"{title_metric} per Bout - {genotype}{title_suffix}", fontsize=16)
+    n_suffix = f" (n={occupancy_df['session'].nunique()})" if occupancy_df is not None else ""
+    plt.title(f"{title_metric} per Bout - {genotype}{title_suffix}{n_suffix}", fontsize=16)
     plt.xlabel(xlabel, fontsize=14)
     ylabel = "Zone Occupancy Fraction / Normalized Velocity" if show_velocity else "Zone Occupancy Fraction"
     plt.ylabel(ylabel, fontsize=14)
@@ -888,7 +917,7 @@ def plot_zone_occupancy_velocity_fit(
     else:
         plt.xlim(0, max(x_max_candidates) + 5)
 
-    plt.legend(frameon=False, fontsize=9, ncol=2)
+    ax.legend(handles=legend_handles, labels=legend_labels, frameon=False, fontsize=9, ncol=2)
     sns.despine()
     plt.tight_layout()
 
@@ -897,12 +926,23 @@ def plot_zone_occupancy_velocity_fit(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"{genotype}_zone_occupancy_velocity_metric{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # One tidy "zone" column (not one column per zone), so every genotype
+        # this is called for accumulates into the same sheet.
+        smoothed_long = pd.concat(
+            [df.assign(zone=zone) for zone, df in smooth_by_zone.items()], ignore_index=True
+        ).assign(genotype=genotype)
+        source_data.record(smoothed_long)
+        if show_velocity:
+            source_data.record(vel_smooth.assign(genotype=genotype), part="velocity")
+        source_data.flush(Path(figures_dirname).name)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -923,6 +963,7 @@ def plot_zone_occupancy_velocity_all(
     title_suffix: str = "",
     show_velocity: bool = True,
     ylim: tuple = (0, 1),
+    genotype_order: list[str] | None = None,
     filename_suffix: str = "",
     figures_dirname: str = "figures",
     save_fig: bool = True,
@@ -969,6 +1010,13 @@ def plot_zone_occupancy_velocity_all(
         occupancy fractions (and normalized velocity) are bounded in [0, 1],
         but real values are often much smaller (e.g. under 0.1), so narrow
         this (e.g. (0, 0.1)) to use the plot area better and see more detail.
+    genotype_order : list[str] | None
+        Order to draw genotype subplots in, e.g.
+        `list(GENOTYPE_SETS[GENOTYPE_SET].keys())` to match your notebook's
+        own GENOTYPE_SETS definition instead of alphabetical order. Genotypes
+        in index_df but not listed here are dropped; entries listed here but
+        absent from index_df are skipped. Defaults to alphabetically sorted
+        (index_df["genotype"].unique()) if not given.
     filename_suffix : str
         Appended to the saved PDF's filename (before the extension).
     save_fig : bool, default True
@@ -983,7 +1031,11 @@ def plot_zone_occupancy_velocity_all(
     plt.Figure or None
         The matplotlib figure object if return_fig is True, else None.
     """
-    genotypes = sorted(index_df["genotype"].unique())
+    if genotype_order is not None:
+        present = set(index_df["genotype"].unique())
+        genotypes = [g for g in genotype_order if g in present]
+    else:
+        genotypes = _config_genotype_order(index_df["genotype"])
     n = len(genotypes)
     ncols = ceil(sqrt(n))
     nrows = ceil(n / ncols)
@@ -992,10 +1044,18 @@ def plot_zone_occupancy_velocity_all(
     fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 5 * nrows), sharex=False, sharey=True)
     axes = np.atleast_1d(axes).flatten()
 
+    _recorded_zones = []
+    _recorded_bouts = []
     for i, genotype in enumerate(genotypes):
-        _, _, smooth_by_zone, vel_smooth, params_by_zone, params_vel = process_zone_occupancy_velocity(
+        df_zones, df_bouts, smooth_by_zone, vel_smooth, params_by_zone, params_vel = process_zone_occupancy_velocity(
             index_df, genotype, zone_names, n_bins=n_bins
         )
+        # The raw per-session, per-bout values (not the smoothed/aggregated
+        # curves plotted below) -- session-level granularity is what lets
+        # the figure report's Prism tables paste this into a real Prism
+        # data table with per-session replicates.
+        _recorded_zones.append(df_zones.assign(genotype=genotype))
+        _recorded_bouts.append(df_bouts.assign(genotype=genotype))
         ax = axes[i]
 
         x_max_candidates = [vel_smooth["ind_no"].max()] if show_velocity else []
@@ -1016,7 +1076,8 @@ def plot_zone_occupancy_velocity_all(
             y_fit_vel = exp_decreasing(x_fit_vel, *params_vel)
             ax.plot(x_fit_vel, y_fit_vel, "--", color="gray")
 
-        ax.set_title(f"{genotype}", fontsize=14, weight="bold")
+        n_sessions = index_df.loc[index_df["genotype"] == genotype, "session"].nunique()
+        ax.set_title(f"{genotype} (n={n_sessions})", fontsize=14, weight="bold")
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Zone Occupancy / Velocity" if show_velocity else "Zone Occupancy", fontsize=12)
         if max_bouts:
@@ -1041,12 +1102,37 @@ def plot_zone_occupancy_velocity_all(
             Path(config["project_path_full"]) / figures_dirname / f"all_genotypes_zone_occupancy_velocity_metric{filename_suffix}.pdf"
         )
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "sessions_x_bouts_x_zones" -- one row per session per bout per
+        # zone (plus a "successful_only" flag so this and the
+        # restricted-to-successful-bouts call both accumulate into the same
+        # sheet instead of separate ones), shared across Plot 6/6b instead
+        # of each getting its own narrow sheet.
+        successful_only = "successful_only" in filename_suffix
+        # "ind_no" is a raw bout count for Plot 6 but a % of that session's
+        # own bouts for Plot 6b -- both flush into this same sheet, so tag
+        # which scale each row uses rather than silently mixing the two.
+        is_pct = "%" in xlabel
+        source_data.record(
+            pd.concat(_recorded_zones, ignore_index=True).assign(successful_only=successful_only, pct_of_bouts=is_pct)
+        )
+        source_data.flush("sessions_x_bouts_x_zones", figure=save_path.stem)
+        # Bout-level velocity (one row per session per bout, no zone) in its
+        # own sheet -- dropping the zone/occupancy columns df_bouts inherits
+        # from whichever zone row survived its per-bout dedup.
+        source_data.record(
+            pd.concat(_recorded_bouts, ignore_index=True)
+            .drop(columns=["zone", "occupancy"], errors="ignore")
+            .assign(successful_only=successful_only, pct_of_bouts=is_pct)
+        )
+        source_data.flush("sessions_x_bouts", figure=save_path.stem)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -1325,6 +1411,8 @@ def plot_backtracking_velocity_fit(
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -1443,6 +1531,8 @@ def plot_backtracking_velocity_all(
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:

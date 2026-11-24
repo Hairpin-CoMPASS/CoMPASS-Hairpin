@@ -23,6 +23,9 @@ import warnings
 
 from compass_labyrinth.constants import NODE_TYPE_MAPPING
 
+import compass_labyrinth.source_data as source_data
+from compass_labyrinth.utils import genotype_order as _config_genotype_order
+
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
 
@@ -370,7 +373,7 @@ def plot_grid_heatmap(
         title = f"{genotype_name} - {metric_label}"
     else:
         state_label = HMM_STATE_LABELS.get(hmm_state, f"State {hmm_state}") if hmm_state is not None else None
-        title = f"{genotype_name} - {state_label} Proportion" if state_label else f"{genotype_name} (Sternum Tracking)"
+        title = f"{genotype_name} - {state_label} Proportion" if state_label else f"{genotype_name} (Belly Tracking)"
     ax.set_title(title, fontsize=14)
     plt.tight_layout()
 
@@ -384,10 +387,114 @@ def plot_grid_heatmap(
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
         return fig
+
+
+
+##################################################################
+# Genotype panels + difference panels (shared layout)
+##################################################################
+DIFF_CMAP = "RdBu_r"  # difference panels: blue = lower in the second group, white ~ 0, red = higher
+
+
+def hold_draws(fig) -> None:
+    """Stop geopandas' .plot() from redrawing the whole figure after every call
+    (it calls canvas.draw_idle(), which non-interactive backends run at once):
+    building a many-panel figure then costs one draw instead of one per panel."""
+    fig.canvas.draw_idle = lambda *args, **kwargs: None
+
+
+def release_draws(fig) -> None:
+    """Undo hold_draws() once the figure is built."""
+    fig.canvas.__dict__.pop("draw_idle", None)
+
+
+def difference_pairs(genotypes: list) -> list:
+    """(second, first) group pairs for difference panels: 2 groups -> B - A;
+    4 groups (E3, E3NLF, E4, E4NLF order) -> E3NLF - E3, E4NLF - E4,
+    E4 - E3, E4NLF - E3NLF; any other count -> none."""
+    g = list(genotypes)
+    if len(g) == 2:
+        return [(g[1], g[0])]
+    if len(g) == 4:
+        return [(g[1], g[0]), (g[3], g[2]), (g[2], g[0]), (g[3], g[1])]
+    return []
+
+
+def genotype_panel_axes(genotypes: list, one_row: bool = False, differences: bool = True,
+                        panel_w: float = 6, panel_h: float = 5):
+    """A figure with one panel per genotype group plus difference panels
+    (second group minus first):
+      2 groups: A, B on top, B - A centered underneath;
+      4 groups as 2x2 (one_row=False, e.g. E3, E3NLF / E4, E4NLF): a 3x3 grid
+        without its bottom-right square -- each row's difference on its right
+        (E3NLF - E3, E4NLF - E4), each column's underneath (E4 - E3, E4NLF - E3NLF);
+      4 groups in one row (one_row=True): a second row with the same 4
+        differences;
+      anything else: the genotype panels only.
+    Returns (fig, [(ax, ("group", g)) or (ax, ("diff", b, a))])."""
+    from matplotlib.gridspec import GridSpec
+
+    n = len(genotypes)
+    g = genotypes
+    if differences and n == 2:
+        fig = plt.figure(figsize=(2 * panel_w, 2 * panel_h))
+        gs = GridSpec(2, 4, figure=fig)
+        slots = [(gs[0, 0:2], ("group", g[0])), (gs[0, 2:4], ("group", g[1])), (gs[1, 1:3], ("diff", g[1], g[0]))]
+    elif differences and n == 4 and not one_row:
+        fig = plt.figure(figsize=(3 * panel_w, 3 * panel_h))
+        gs = GridSpec(3, 3, figure=fig)
+        slots = [(gs[0, 0], ("group", g[0])), (gs[0, 1], ("group", g[1])), (gs[0, 2], ("diff", g[1], g[0])),
+                 (gs[1, 0], ("group", g[2])), (gs[1, 1], ("group", g[3])), (gs[1, 2], ("diff", g[3], g[2])),
+                 (gs[2, 0], ("diff", g[2], g[0])), (gs[2, 1], ("diff", g[3], g[1]))]
+    elif differences and n == 4 and one_row:
+        fig = plt.figure(figsize=(4 * panel_w, 2 * panel_h))
+        gs = GridSpec(2, 4, figure=fig)
+        slots = [(gs[0, i], ("group", g[i])) for i in range(4)]
+        slots += [(gs[1, i], ("diff", b, a)) for i, (b, a) in enumerate(difference_pairs(g))]
+    else:
+        n_cols = n if one_row else math.ceil(n ** 0.5)
+        n_rows = 1 if one_row else math.ceil(n / n_cols)
+        fig = plt.figure(figsize=(panel_w * n_cols, panel_h * n_rows))
+        gs = GridSpec(n_rows, n_cols, figure=fig)
+        slots = [(gs[i // n_cols, i % n_cols], ("group", gg)) for i, gg in enumerate(g)]
+    hold_draws(fig)  # callers release_draws(fig) once all panels are drawn
+    return fig, [(fig.add_subplot(slot), spec) for slot, spec in slots]
+
+
+def robust_diff_lim(diffs, q: float = 95) -> float:
+    """Symmetric color limit for difference panels: the q-th percentile of
+    |difference| over all cells/zones of all difference panels, rounded up to
+    a readable number."""
+    v = np.abs(np.concatenate([np.asarray(d, dtype=float).ravel() for d in diffs])) if len(diffs) else np.array([])
+    v = v[np.isfinite(v)]
+    if not len(v):
+        return 1.0
+    lim = float(np.percentile(v, q))
+    if lim <= 0:
+        return 1.0
+    mag = 10 ** math.floor(math.log10(lim))
+    for step in (1, 2, 2.5, 5, 10):
+        if lim <= step * mag:
+            return step * mag
+    return lim
+
+
+def annotate_diverging(ax, gdf: gpd.GeoDataFrame, column: str, lim: float, fmt: str, fontsize: float = 5) -> None:
+    """Value labels for a two-sided (difference) panel: white on the strongly
+    colored ends, black near zero."""
+    for _, row in gdf.iterrows():
+        v = row[column]
+        if pd.isna(v):
+            continue
+        pt = row.geometry.centroid
+        ax.annotate(fmt.format(v), xy=(pt.x, pt.y), ha="center", va="center", fontsize=fontsize,
+                    color="white" if abs(v) > 0.55 * lim else "black")
 
 
 ##################################################################
@@ -410,6 +517,10 @@ def plot_all_genotype_heatmaps(
     filename_stem: str = "grid_heatmap",
     filename_suffix: str = "",
     figures_dirname: str = "figures",
+    genotype_order: list | None = None,
+    tracking_label: str = "Belly Tracking",
+    show_differences: bool = True,
+    diff_lim: float | None = None,
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -461,6 +572,18 @@ def plot_all_genotype_heatmaps(
         {filename_suffix}.pdf" -- override for a non-state-proportion
         compute_fn (e.g. "velocity_heatmap") so the saved file is
         identifiable on its own, without relying on figures_dirname.
+    genotype_order : list | None
+        Panel order, left to right then down (e.g. list(GENOTYPE_SETS["wt_nlf"])
+        for WT before NLF). Genotypes not listed follow alphabetically;
+        None sorts all alphabetically.
+    tracking_label : str
+        The body part named in each panel title, e.g. "Nose".
+    show_differences : bool
+        Add difference panels, second group minus first (red = higher in the
+        second group); layout in genotype_panel_axes().
+    diff_lim : float | None
+        Color limit (+-) for the difference panels; None = the 95th percentile
+        of |difference| over their cells, rounded.
     save_fig : bool
         Whether to save the figure.
     show_fig : bool
@@ -476,68 +599,67 @@ def plot_all_genotype_heatmaps(
     if compute_fn is None:
         compute_fn = lambda df, g: compute_state_proportion(df, g, hmm_state)  # noqa: E731
 
-    genotypes = sorted(df_hmm["genotype"].unique())
-    n_genotypes = len(genotypes)
-    n_cols = math.ceil(n_genotypes**0.5)
-    n_rows = math.ceil(n_genotypes / n_cols)
+    present = set(df_hmm["genotype"].unique())
+    if genotype_order is not None:
+        genotypes = [g for g in genotype_order if g in present] + sorted(present - set(genotype_order))
+    else:
+        genotypes = _config_genotype_order(present)
 
     grid = create_grid_geodata(config, grid_filename)
 
-    fig, axs = plt.subplots(n_rows, n_cols, figsize=(6 * n_cols, 5 * n_rows))
-    axs = axs.flatten() if isinstance(axs, np.ndarray) else [axs]
+    # Per-genotype per-cell values first, so the difference panels can use them
+    _recorded_by_genotype, mapped = [], {}
+    for genotype in genotypes:
+        # Only this genotype's rows -- compute_fn filters to it anyway
+        state_df = compute_fn(df_hmm[df_hmm["genotype"] == genotype], genotype)
+        _recorded_by_genotype.append(state_df.assign(genotype=genotype))
+        mapped[genotype] = merge_state_proportions_to_grid(grid, state_df, value_col=value_col, target_col=value_column)
 
-    for i, genotype in enumerate(genotypes):
-        # Step 1: Compute per-grid-cell values
-        state_df = compute_fn(df_hmm, genotype)
+    fig, panels = genotype_panel_axes(genotypes, one_row=False, differences=show_differences)
+    diff_maps = {}
+    for _, spec in panels:
+        if spec[0] == "diff":
+            b, a = spec[1], spec[2]
+            vb = mapped[b].drop_duplicates("FID").set_index("FID")[value_column]
+            va = mapped[a].drop_duplicates("FID").set_index("FID")[value_column]
+            diff_maps[(b, a)] = grid.assign(difference=grid["FID"].map(vb - va))
+    lim = diff_lim if diff_lim is not None else robust_diff_lim([d["difference"] for d in diff_maps.values()])
+    fmt = "{:+.2f}" if value_col == "prop" else "{:+.0f}"
 
-        # Step 2: Map mean (x, y) points to grid polygons
-        pointInPolys = map_points_to_grid(state_df, grid)
-
-        # Step 3: Merge with grid
-        grid_mapped = merge_state_proportions_to_grid(grid, state_df, value_col=value_col, target_col=value_column)
-
-        # Step 4: Plot on subplot
-        ax = axs[i]
+    for ax, spec in panels:
         divider = make_axes_locatable(ax)
         cax = divider.append_axes("right", size="5%", pad=0.1)
-
-        grid_mapped.plot(
-            column=value_column,
-            cmap=cmap,
-            linewidth=0.8,
-            ax=ax,
-            vmin=vmin,
-            vmax=vmax,
-            edgecolor="0.8",
-            legend=True,
-            cax=cax,
-            alpha=1.0,
-        )
-        annotate_grid_values(ax, grid_mapped, column=value_column, fontsize=5, vmin=vmin, vmax=vmax)
+        if spec[0] == "group":
+            genotype = spec[1]
+            grid_mapped = mapped[genotype]
+            grid_mapped.plot(column=value_column, cmap=cmap, linewidth=0.8, ax=ax, vmin=vmin, vmax=vmax,
+                             edgecolor="0.8", legend=True, cax=cax, alpha=1.0)
+            annotate_grid_values(ax, grid_mapped, column=value_column, fontsize=5, vmin=vmin, vmax=vmax)
+            n_sessions = df_hmm.loc[df_hmm["genotype"] == genotype, "session"].nunique()
+            ax.set_title(f"{genotype} ({tracking_label}, n={n_sessions})", fontsize=12)
+        else:
+            b, a = spec[1], spec[2]
+            dm = diff_maps[(b, a)]
+            dm.plot(column="difference", cmap=DIFF_CMAP, linewidth=0.8, ax=ax, vmin=-lim, vmax=lim,
+                    edgecolor="0.8", legend=True, cax=cax, missing_kwds={"color": "0.9"})
+            annotate_diverging(ax, dm, "difference", lim, fmt)
+            ax.set_title(f"{b} \u2212 {a}", fontsize=12, weight="bold")
 
         if highlight_grids is not None:
-            highlight_grids_values = NODE_TYPE_MAPPING[highlight_grids]
-            edge_subset = grid_mapped[grid_mapped["FID"].isin(highlight_grids_values)]
+            edge_subset = grid[grid["FID"].isin(NODE_TYPE_MAPPING[highlight_grids])]
             edge_subset.plot(ax=ax, edgecolor="black", facecolor="none", linewidth=2)
-
         if target_grids is not None:
-            target_grids_values = NODE_TYPE_MAPPING[target_grids]
-            target_subset = grid_mapped[grid_mapped["FID"].isin(target_grids_values)]
+            target_subset = grid[grid["FID"].isin(NODE_TYPE_MAPPING[target_grids])]
             # Dissolve into one polygon so only the union's outer boundary is
             # outlined (one square), not a border around each individual cell.
-            target_union = gpd.GeoDataFrame(geometry=[target_subset.union_all()], crs=grid_mapped.crs)
+            target_union = gpd.GeoDataFrame(geometry=[target_subset.union_all()], crs=grid.crs)
             target_union.plot(ax=ax, edgecolor="yellow", facecolor="none", linewidth=1.5)
 
         # Flip the y-axis to match video coordinates (see plot_grid_heatmap)
         ax.invert_yaxis()
-
-        ax.set_title(f"{genotype} (Sternum Tracking)", fontsize=12)
         ax.axis("off")
 
-    # Hide unused axes
-    for j in range(len(genotypes), len(axs)):
-        fig.delaxes(axs[j])
-
+    release_draws(fig)
     if metric_label:
         suptitle = f"{metric_label} Across Genotypes"
     else:
@@ -550,12 +672,26 @@ def plot_all_genotype_heatmaps(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"all_genotypes_{filename_stem}{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "grid_cells" -- one row per genotype per grid cell (not a
+        # session-level table; state proportion and velocity are already
+        # pooled across every session of that genotype) -- shared by both
+        # Plot 1 (state proportion) and Plot 1b (velocity) instead of each
+        # getting its own narrow sheet.
+        # "genotype_group", not "genotype": source_data drops a bare
+        # "genotype" column (it re-joins genotype from the mouse metadata by
+        # session), and these pooled per-cell rows have no session to join.
+        source_data.record(
+            pd.concat(_recorded_by_genotype, ignore_index=True).rename(columns={"genotype": "genotype_group"})
+        )
+        source_data.flush("grid_cells", figure=save_path.stem)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -936,3 +1072,114 @@ def plot_all_genotype_interactive_heatmaps(
     # Return figure
     if return_fig:
         return subplot_fig
+
+
+def plot_all_genotype_zone_heatmaps(
+    config: dict,
+    df_hmm: pd.DataFrame,
+    grid_filename: str,
+    zones: dict,
+    zone_names: list,
+    metric: str = "state",
+    hmm_state: int = 1,
+    cmap: str = "YlOrRd",
+    vmin: float = 0.0,
+    vmax: float = 1.0,
+    metric_label: str | None = None,
+    filename_stem: str = "grid_heatmap",
+    filename_suffix: str = "",
+    figures_dirname: str = "figures",
+    genotype_order: list | None = None,
+    tracking_label: str = "Belly Tracking",
+    show_differences: bool = True,
+    diff_lim: float | None = None,
+    save_fig: bool = True,
+    show_fig: bool = True,
+    return_fig: bool = False,
+) -> None | plt.Figure:
+    """plot_all_genotype_heatmaps(), pooled per ZONE instead of per cell: each
+    zone of `zone_names` is colored by its value over all of the genotype's
+    frames there -- metric="state": share of frames in `hmm_state`;
+    metric="velocity": mean velocity -- and labeled with it; cells outside the
+    zone set are hatched grey. Same panel and difference-panel layout as the
+    per-cell version (genotype_panel_axes())."""
+    present = set(df_hmm["genotype"].unique())
+    if genotype_order is not None:
+        genotypes = [g for g in genotype_order if g in present] + sorted(present - set(genotype_order))
+    else:
+        genotypes = _config_genotype_order(present)
+    grid = create_grid_geodata(config, grid_filename)
+    in_set = set().union(*(zones[z] for z in zone_names))
+    target = grid[grid["FID"].isin(NODE_TYPE_MAPPING.get("target_zone", [70, 71, 80, 81]))]
+    target_union = gpd.GeoDataFrame(geometry=[target.union_all()], crs=grid.crs)
+    fmt_val = "{:.2f}" if metric == "state" else "{:.0f}"
+
+    values, recorded = {}, []
+    for genotype in genotypes:
+        d = df_hmm[df_hmm["genotype"] == genotype]
+        values[genotype] = {}
+        for zone in zone_names:
+            zd = d[d["grid_number"].isin(zones[zone])]
+            v = np.nan if zd.empty else ((zd["hmm_state"] == hmm_state).mean() if metric == "state" else zd["velocity"].mean())
+            values[genotype][zone] = v
+            recorded.append({"genotype_group": genotype, "zone": zone, "value": v, "frames": len(zd)})
+
+    fig, panels = genotype_panel_axes(genotypes, one_row=False, differences=show_differences)
+    diffs = {(spec[1], spec[2]): {z: values[spec[1]][z] - values[spec[2]][z] for z in zone_names}
+             for _, spec in panels if spec[0] == "diff"}
+    lim = diff_lim if diff_lim is not None else robust_diff_lim([list(d.values()) for d in diffs.values()])
+    fmt_diff = "{:+.2f}" if metric == "state" else "{:+.0f}"
+
+    for ax, spec in panels:
+        if spec[0] == "group":
+            vals, cm, norm, fmt = values[spec[1]], plt.get_cmap(cmap), plt.Normalize(vmin, vmax), fmt_val
+        else:
+            vals, cm, norm, fmt = diffs[(spec[1], spec[2])], plt.get_cmap(DIFF_CMAP), plt.Normalize(-lim, lim), fmt_diff
+        grid[~grid["FID"].isin(in_set)].plot(ax=ax, facecolor="0.92", edgecolor="0.8", hatch="///", linewidth=0.4)
+        for zone in zone_names:
+            v = vals[zone]
+            shape = grid[grid["FID"].isin(zones[zone])]
+            shape.plot(ax=ax, color="0.8" if pd.isna(v) else cm(norm(v)), edgecolor="0.85", linewidth=0.4)
+            outline = shape.union_all()
+            gpd.GeoSeries([outline], crs=grid.crs).boundary.plot(ax=ax, color="0.3", linewidth=0.8)
+            if pd.notna(v):
+                rgba = cm(norm(v))
+                dark = 0.299 * rgba[0] + 0.587 * rgba[1] + 0.114 * rgba[2] < 0.5
+                for part in (list(outline.geoms) if hasattr(outline, "geoms") else [outline]):
+                    pt = part.representative_point()
+                    ax.annotate(fmt.format(v), (pt.x, pt.y), ha="center", va="center", fontsize=6,
+                                color="white" if dark else "black")
+        target_union.plot(ax=ax, edgecolor="yellow", facecolor="none", linewidth=1.5)
+        ax.invert_yaxis()
+        ax.axis("off")
+        if spec[0] == "group":
+            n_sessions = df_hmm.loc[df_hmm["genotype"] == spec[1], "session"].nunique()
+            ax.set_title(f"{spec[1]} ({tracking_label}, n={n_sessions})", fontsize=12)
+        else:
+            ax.set_title(f"{spec[1]} \u2212 {spec[2]}", fontsize=12, weight="bold")
+        cax = make_axes_locatable(ax).append_axes("right", size="5%", pad=0.1)
+        fig.colorbar(plt.cm.ScalarMappable(cmap=cm, norm=norm), cax=cax)
+    release_draws(fig)
+    if metric_label:
+        suptitle = f"{metric_label} Across Genotypes, per zone"
+    else:
+        suptitle = f"{HMM_STATE_LABELS.get(hmm_state, f'State {hmm_state}')} Proportion Across Genotypes, per zone"
+    fig.suptitle(suptitle + " (hatched = not in zone set)", fontsize=16)
+    plt.tight_layout(rect=[0, 0, 1, 0.96])
+
+    if save_fig:
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"all_genotypes_{filename_stem}{filename_suffix}.pdf"
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "groups_x_zones": one row per genotype group x zone (pooled over its sessions)
+        source_data.record(pd.DataFrame(recorded).assign(metric=metric))
+        source_data.flush("groups_x_zones", figure=save_path.stem)
+        plt.savefig(save_path, bbox_inches="tight", dpi=300)
+        print(f"Figure saved at: {save_path}")
+
+    if show_fig:
+        plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
+
+    if return_fig:
+        return fig

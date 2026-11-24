@@ -15,6 +15,10 @@ import pandas as pd
 import warnings
 
 from compass_labyrinth.constants import NODE_TYPE_MAPPING
+from compass_labyrinth.post_hoc_analysis.level_1.grid_heatmap import HMM_STATE_LABELS
+from compass_labyrinth.utils import group_sample_sizes, append_n_to_legend, genotype_order
+
+import compass_labyrinth.source_data as source_data
 
 
 warnings.simplefilter(action="ignore", category=FutureWarning)
@@ -181,10 +185,13 @@ def plot_state_probability_boxplot(
         x=column_of_interest,
         y=value_col,
         hue="genotype",
+        hue_order=genotype_order(state_count_df["genotype"]),
         data=state_count_df,
         palette=palette,
     )
-    ylabel = metric_label if metric_label else f"Probability of being in State {state}"
+    append_n_to_legend(ax.get_legend(), group_sample_sizes(state_count_df, "genotype"))
+    state_name = HMM_STATE_LABELS.get(state, f"State {state}")
+    ylabel = metric_label if metric_label else f"Probability of {state_name} state"
     ax.set_ylabel(ylabel, fontsize=15)
     ax.set_xlabel(column_of_interest, fontsize=15)
     plt.xticks(size=11)
@@ -199,12 +206,19 @@ def plot_state_probability_boxplot(
             / f"{stem}_by_{column_of_interest}{filename_suffix}.pdf"
         )
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "sessions_x_zones" -- one row per session per zone, shared between
+        # Plot 2 (state probability) and Plot 2b (velocity) instead of each
+        # getting its own narrow sheet.
+        source_data.record(state_count_df)
+        source_data.flush("sessions_x_zones", figure=save_path.stem)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:

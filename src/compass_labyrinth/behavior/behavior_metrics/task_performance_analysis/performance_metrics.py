@@ -19,9 +19,12 @@ from itertools import combinations
 from statsmodels.stats.anova import AnovaRM
 from statsmodels.stats.multitest import multipletests
 from statsmodels.formula.api import mixedlm
+
+import compass_labyrinth.source_data as source_data
 from scipy.stats import entropy, ttest_ind
 
 from compass_labyrinth.constants import REGION_LENGTHS, REGION_NAMES
+from compass_labyrinth.utils import group_sample_sizes, append_n_to_legend, genotype_order
 
 
 warnings.filterwarnings("ignore")
@@ -335,6 +338,7 @@ def summarize_target_usage(
 def plot_target_usage_vs_frames(
     config: dict,
     summary_df: pd.DataFrame,
+    filename_suffix: str = "",
     figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
@@ -368,10 +372,12 @@ def plot_target_usage_vs_frames(
         x="no_of_frames",
         y="target_usage",
         hue="genotype",
+        hue_order=genotype_order(summary_df["genotype"]),
         style="sex",
         palette=["orange", "grey", "red", "blue"],
         ax=ax,
     ).collections[0].set_sizes([200])
+    append_n_to_legend(ax.get_legend(), group_sample_sizes(summary_df, "genotype"), group_sample_sizes(summary_df, "sex"))
 
     plt.xlabel("No. of Frames", fontsize=10)
     plt.ylabel("Mean Target Usage", fontsize=10)
@@ -392,14 +398,18 @@ def plot_target_usage_vs_frames(
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / figures_dirname / "target_usage_vs_frames.png"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"target_usage_vs_frames{filename_suffix}.png"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # Not recorded here -- plot_target_usage_with_exclusions() right after
+        # records the same data plus the exclusion outcome, a strict superset.
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -459,6 +469,7 @@ def plot_target_usage_with_exclusions(
     config: dict,
     summary_df: pd.DataFrame,
     sessions_to_exclude: list,
+    filename_suffix: str = "",
     figures_dirname: str = "figures",
     save_fig: bool = True,
     show_fig: bool = True,
@@ -500,6 +511,7 @@ def plot_target_usage_with_exclusions(
         x="no_of_frames",
         y="target_usage",
         hue="genotype",
+        hue_order=genotype_order(included_df["genotype"]),
         style="sex",
         palette=["orange", "grey", "red", "blue"],
         ax=ax,
@@ -537,18 +549,26 @@ def plot_target_usage_with_exclusions(
     plt.xlim(left=0)
     plt.title("Target Zone Usage vs No. of Frames (Excluded Sessions Marked)")
     plt.tight_layout()
-    plt.legend()
+    legend = plt.legend()
+    append_n_to_legend(legend, group_sample_sizes(included_df, "genotype"), group_sample_sizes(included_df, "sex"))
 
     # Save figure
     if save_fig:
-        save_path = Path(config["project_path_full"]) / figures_dirname / "target_usage_vs_frames_exclusions.png"
+        save_path = Path(config["project_path_full"]) / figures_dirname / f"target_usage_vs_frames_exclusions{filename_suffix}.png"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "sessions" (not this step's own folder name) -- one row per
+        # session, shared with every other session-level metric (success
+        # rate, etc.) instead of each figure getting its own narrow sheet.
+        source_data.record(summary_df.assign(excluded=summary_df["session"].isin(sessions_to_exclude)))
+        source_data.flush("sessions", figure=save_path.stem)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -736,6 +756,8 @@ def plot_region_heatmaps(
 
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     if return_fig:
         return fig
@@ -759,6 +781,7 @@ def plot_region_heatmaps_all_genotypes(
     spacing_w: float = 0.6,  # Wider horizontal space between genotypes
     spacing_h: float = 0.2,  # Tighter vertical space between bins
     show_colorbar: bool = True,
+    show_group_mean: bool = True,
     bin_label_suffix: str = "",
     filename_suffix: str = "",
     figures_dirname: str = "figures",
@@ -801,6 +824,9 @@ def plot_region_heatmaps_all_genotypes(
         Space between time-bin rows
     show_colorbar : bool
         If True, show colorbar in last column per row
+    show_group_mean : bool
+        If True, add a panel right of each bin row with one column per group:
+        the mean across that group's sessions for each region
     bin_label_suffix : str
         Appended after each bin-range number in the y-axis bin label, e.g. "%"
         for percentage-based bins (from generate_region_heatmap_pivots_by_percentage())
@@ -835,12 +861,28 @@ def plot_region_heatmaps_all_genotypes(
     n_bins = int((upper_lim - lower_lim) / difference)
     n_genos = len(genotypes)
 
-    fig_w = figsize_per_genotype[0] * n_genos
+    # Extra panel per bin row: one column per group, the mean across that
+    # group's sessions for each region
+    mean_width = 0.15 + 0.16 * n_genos  # room for horizontal group labels
+    fig_w = figsize_per_genotype[0] * (n_genos + (mean_width if show_group_mean else 0))
     fig_h = figsize_per_genotype[1] * n_bins
 
-    fig, axes = plt.subplots(nrows=n_bins, ncols=n_genos, figsize=(fig_w, fig_h), squeeze=False)
+    fig, axes = plt.subplots(
+        nrows=n_bins,
+        ncols=n_genos + int(show_group_mean),
+        figsize=(fig_w, fig_h),
+        squeeze=False,
+        gridspec_kw={"width_ratios": [1] * n_genos + ([mean_width] if show_group_mean else [])},
+    )
+
+    # Once per genotype, not once per panel -- df_all_csv is the per-frame
+    # dataframe (millions of rows), and the answer doesn't change by bin.
+    valid_sessions_by_genotype = {
+        g: set(df_all_csv.loc[df_all_csv["genotype"] == g, "session"].unique()) for g in genotypes
+    }
 
     for i in range(n_bins):
+        group_means = {}
         for j, genotype in enumerate(genotypes):
             ax = axes[i, j]
 
@@ -852,38 +894,33 @@ def plot_region_heatmaps_all_genotypes(
             pivot_tab = pivot_tables[i]
 
             # Use only valid sessions from df_all_csv
-            valid_sessions = df_all_csv.loc[df_all_csv["genotype"] == genotype, "session"].unique()
+            valid_sessions = valid_sessions_by_genotype[genotype]
             pivot_tab = pivot_tab[[s for s in pivot_tab.columns if s in valid_sessions]]
             pivot_tab = pivot_tab.reindex(region_order).astype(float)
             pivot_tab.index = pivot_tab.index.map(lambda x: REGION_NAMES.get(x, x))
+            group_means[genotype] = pivot_tab.mean(axis=1)
 
-            sns.heatmap(
-                data=pivot_tab,
-                ax=ax,
-                cmap=cmap,
-                vmin=0,
-                vmax=vmax,
-                mask=pivot_tab.isna(),
-                annot=False,
-                linewidths=0.4,
-                linecolor="white",
-                cbar=(show_colorbar and j == n_genos - 1),
-                # Force one tick per row/column -- seaborn's default "auto"
-                # thins ticks out to avoid overlap once there are enough
-                # sessions, which then mismatches the explicit
-                # set_xticklabels/set_yticklabels calls below (which always
-                # pass one label per column/row) and raises a ValueError.
-                xticklabels=True,
-                yticklabels=True,
-            )
-            if show_colorbar and j == n_genos - 1:
-                ax.collections[0].colorbar.set_label(
-                    "Occupancy density\n(normalized by region area)", fontsize=9
-                )
+            # Drawn directly instead of sns.heatmap(): seaborn re-renders the
+            # WHOLE figure after every heatmap (to check tick-label overlap),
+            # so a figure with ~100 panels was re-rendered ~100 times while
+            # being built -- most of this plot's runtime. Same look: one cell
+            # per session x region, white gridlines, no-data cells left blank,
+            # first row at the top, colorbar on the last genotype column.
+            values = np.ma.masked_invalid(pivot_tab.to_numpy())
+            mesh = ax.pcolormesh(values, cmap=cmap, vmin=0, vmax=vmax, edgecolors="white", linewidth=0.4)
+            n_rows_tab, n_cols_tab = values.shape
+            ax.set_xlim(0, n_cols_tab)
+            ax.set_ylim(n_rows_tab, 0)
+            ax.set_xticks(np.arange(n_cols_tab) + 0.5)
+            ax.set_yticks(np.arange(n_rows_tab) + 0.5)
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+            if show_colorbar and j == n_genos - 1 and not show_group_mean:
+                fig.colorbar(mesh, ax=ax).set_label("Occupancy density\n(normalized by region area)", fontsize=9)
 
             # Titles
             if i == 0:
-                ax.set_title(genotype, fontsize=13, weight="bold")
+                ax.set_title(f"{genotype} (n={len(valid_sessions)})", fontsize=13, weight="bold")
 
             # Y-labels only for first column
             if j == 0:
@@ -899,6 +936,36 @@ def plot_region_heatmaps_all_genotypes(
             ax.set_xlabel("")
             ax.set_xticklabels(pivot_tab.columns, fontsize=9)
             ax.tick_params(axis="x", bottom=True)
+
+        if show_group_mean:
+            ax = axes[i, n_genos]
+            if not group_means:
+                ax.axis("off")
+                continue
+            means = pd.DataFrame(group_means).reindex(columns=[g for g in genotypes if g in group_means])
+            values = np.ma.masked_invalid(means.to_numpy())
+            mesh = ax.pcolormesh(values, cmap=cmap, vmin=0, vmax=vmax, edgecolors="white", linewidth=0.4)
+            n_rows_tab, n_cols_tab = values.shape
+            ax.set_xlim(0, n_cols_tab)
+            ax.set_ylim(n_rows_tab, 0)
+            ax.set_xticks(np.arange(n_cols_tab) + 0.5)
+            ax.set_xticklabels(means.columns, fontsize=9)
+            ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+            # Few cells, so print each mean, white on dark cells / black on light
+            for r in range(n_rows_tab):
+                for c in range(n_cols_tab):
+                    v = means.iat[r, c]
+                    if pd.notna(v):
+                        red, green, blue, _ = mesh.cmap(mesh.norm(v))
+                        dark = 0.299 * red + 0.587 * green + 0.114 * blue < 0.5
+                        ax.text(c + 0.5, r + 0.5, f"{v:.2f}", ha="center", va="center", fontsize=7,
+                                color="white" if dark else "black")
+            if i == 0:
+                ax.set_title("Group mean", fontsize=13, weight="bold")
+            if show_colorbar:
+                fig.colorbar(mesh, ax=ax).set_label("Occupancy density\n(normalized by region area)", fontsize=9)
 
     # Reserve a roughly constant ~0.6in gap between the subplot grid and the
     # suptitle, instead of a flat top=0.95 fraction -- fig_h scales with
@@ -922,11 +989,17 @@ def plot_region_heatmaps_all_genotypes(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"region_heatmaps{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # Not recorded for the datasheet -- df_all_csv here is the raw
+        # per-frame dataframe (one row per tracked frame), not a per-session
+        # summary; dumping it would bloat the workbook with the same
+        # underlying tracking data the heatmap itself already visualizes.
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved at: {save_path}")
 
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     if return_fig:
         return fig
@@ -1007,11 +1080,25 @@ def compute_shannon_entropy_per_bin(
 ###############################################################################
 ## Plot 2: Plotting Shannon's Entropy across Sessions (/Mice)
 ###############################################################################
+def _entropy_ylim(df: pd.DataFrame, ylim: tuple | None) -> tuple:
+    """A safe y-axis ceiling for a Shannon-entropy plot: the max possible
+    value is log2(n_zones) -- a hardcoded ylim (e.g. (0, 2), enough for only
+    4 zones) silently clips the line/error-bars for any ZONE_SET with more
+    zones than that, which looks like the plotted line runs outside the
+    axes. None (default) computes it from the data actually being plotted,
+    so it's always correct for whatever ZONE_SET produced entropy_df."""
+    if ylim is not None:
+        return ylim
+    data_max = df["entropy"].max()
+    top = 1.0 if pd.isna(data_max) or data_max <= 0 else data_max * 1.15
+    return (0, top)
+
+
 def plot_entropy_over_bins(
     config: dict,
     entropy_df: pd.DataFrame,
     palette: list | None = None,
-    ylim: tuple = (0, 5),
+    ylim: tuple | None = None,
     filename_suffix: str = "",
     figures_dirname: str = "figures",
     save_fig: bool = True,
@@ -1029,8 +1116,10 @@ def plot_entropy_over_bins(
         DataFrame containing 'session', 'bin', 'entropy', and 'genotype' columns
     palette : list | None
         List of colors for genotypes.
-    ylim : tuple
-        Y-axis limits.
+    ylim : tuple | None
+        Y-axis limits. None (default) derives a safe ceiling from
+        entropy_df's own max value (log2(n_zones) plus some margin) --
+        pass an explicit tuple to override.
     save_fig : bool
         Whether to save the figure.
     show_fig : bool
@@ -1049,6 +1138,7 @@ def plot_entropy_over_bins(
         x="bin",
         y="entropy",
         hue="genotype",
+        hue_order=genotype_order(entropy_df["genotype"]),
         kind="point",
         capsize=0.15,
         err_kws={"linewidth": 1.5},
@@ -1060,15 +1150,16 @@ def plot_entropy_over_bins(
     )
 
     g._legend.set_title("genotype")
-    g._legend.set_bbox_to_anchor((1, 1))
+    append_n_to_legend(g._legend, group_sample_sizes(entropy_df, "genotype"))
     for text in g._legend.texts:
         text.set_fontsize(12)
     g._legend.get_title().set_fontsize(13)
 
     ax = g.ax
-    ax.set_ylim(ylim)
+    ax.set_ylim(_entropy_ylim(entropy_df, ylim))
     ax.set_xlabel("Frames", fontsize=15)
     ax.set_ylabel("Shannon's Entropy\n(per session per bin)", fontsize=15)
+    ax.set_title("Shannon's Entropy of Region Occupancy over Time", fontsize=15, weight="bold")
     # ax.tick_params(labelsize=12)
 
     plt.tight_layout()
@@ -1077,11 +1168,18 @@ def plot_entropy_over_bins(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"shannon_entropy{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "sessions_x_bins" -- one row per session per time bin, shared with
+        # every other session x bin metric (time-based success rate, etc.)
+        # instead of its own narrow sheet.
+        source_data.record(entropy_df)
+        source_data.flush("sessions_x_bins", figure=save_path.stem)
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     if return_fig:
         return g
@@ -1093,7 +1191,7 @@ def plot_entropy_over_bins_zoomed(
     cutoff_bin: int = 40000,
     df_all_csv: pd.DataFrame | None = None,
     palette: list | None = None,
-    ylim: tuple = (0, 2),
+    ylim: tuple | None = None,
     aspect: float = 2.0,
     height: float = 6,
     filename_suffix: str = "",
@@ -1126,8 +1224,10 @@ def plot_entropy_over_bins_zoomed(
         full-vs-partial breakdown in the per-bin annotation.
     palette : list | None
         List of colors for genotypes.
-    ylim : tuple
-        Y-axis limits.
+    ylim : tuple | None
+        Y-axis limits. None (default) derives a safe ceiling from the
+        zoomed (bin <= cutoff_bin) data's own max value -- pass an explicit
+        tuple to override.
     aspect : float
         Width-to-height ratio passed to seaborn's catplot.
     height : float
@@ -1152,6 +1252,7 @@ def plot_entropy_over_bins_zoomed(
         x="bin",
         y="entropy",
         hue="genotype",
+        hue_order=genotype_order(df["genotype"]),
         kind="point",
         capsize=0.15,
         err_kws={"linewidth": 1.5},
@@ -1163,15 +1264,21 @@ def plot_entropy_over_bins_zoomed(
     )
 
     g._legend.set_title("genotype")
-    g._legend.set_bbox_to_anchor((1, 1))
+    append_n_to_legend(g._legend, group_sample_sizes(df, "genotype"))
     for text in g._legend.texts:
         text.set_fontsize(12)
     g._legend.get_title().set_fontsize(13)
 
     ax = g.ax
-    ax.set_ylim(ylim)
+    ax.set_ylim(_entropy_ylim(df, ylim))
     ax.set_xlabel("Frames", fontsize=15)
     ax.set_ylabel("Shannon's Entropy\n(per session per bin)", fontsize=15)
+    ax.set_title(
+        f"Shannon's Entropy of Region Occupancy over Time (up to {cutoff_bin:,} frames)",
+        fontsize=15, weight="bold",
+    )
+    # Below the per-bin "n=..." annotations added further down
+    ax.set_xlabel("Frames", fontsize=15, labelpad=26)
 
     session_rows = None
     if df_all_csv is not None:
@@ -1208,11 +1315,15 @@ def plot_entropy_over_bins_zoomed(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"shannon_entropy_zoomed{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # Not recorded here -- plot_entropy_over_bins() already recorded the
+        # full entropy_df this is just a bin<=cutoff subset of.
         plt.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     if return_fig:
         return g
@@ -1283,9 +1394,17 @@ def run_fdr_pairwise_tests(entropy_df: pd.DataFrame) -> pd.DataFrame | None:
                 stat, pval = ttest_ind(g1_vals, g2_vals, equal_var=False)
                 results.append({"bin": bin_val, "Group1": g1, "Group2": g2, "t-stat": stat, "raw-p": pval})
 
-    # FDR correction
-    raw_pvals = [r["raw-p"] for r in results]
-    reject, pvals_corrected, _, _ = multipletests(raw_pvals, alpha=0.05, method="fdr_bh")
+    # FDR correction -- a degenerate (near-zero-variance) pair at a sparse
+    # bin can make ttest_ind return NaN; excluding those from the correction
+    # basis keeps one bad pair from poisoning every other row's fdr_p via
+    # multipletests (which it otherwise does -- NaN sorts/compares unlike
+    # anything else, corrupting the whole corrected array).
+    raw_pvals = np.array([r["raw-p"] for r in results], dtype=float)
+    valid = ~np.isnan(raw_pvals)
+    pvals_corrected = np.full(len(results), np.nan)
+    reject = np.zeros(len(results), dtype=bool)
+    if valid.any():
+        reject[valid], pvals_corrected[valid], _, _ = multipletests(raw_pvals[valid], alpha=0.05, method="fdr_bh")
 
     for i, r in enumerate(results):
         r["fdr_p"] = pvals_corrected[i]
@@ -1446,6 +1565,7 @@ def plot_region_usage_over_bins(
         x="bin",
         y=region_name,
         hue="genotype",
+        hue_order=genotype_order(region_data["genotype"]),
         data=region_data,
         kind="point",
         capsize=0.15,
@@ -1454,6 +1574,7 @@ def plot_region_usage_over_bins(
         aspect=1.5,
     )
 
+    append_n_to_legend(ax._legend, group_sample_sizes(region_data, "genotype"))
     plt.xticks(size=10, color="black")
     plt.yticks(size=12, color="black")
     plt.xlabel("Cumulative time in maze (frames)", size=15)
@@ -1466,11 +1587,18 @@ def plot_region_usage_over_bins(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"{region_name}_prop_usage{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # Tidy (one "region" column, not one column per zone) so every zone
+        # this is called for accumulates into the same sheet instead of each
+        # getting its own, and renamed column misaligning across them.
+        source_data.record(region_data.rename(columns={region_name: "proportion"}).assign(region=region_name))
+        source_data.flush(Path(figures_dirname).name)
         fig.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved at: {save_path}")
 
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     if return_fig:
         return fig
@@ -1486,7 +1614,7 @@ def plot_all_regions_usage_over_bins(
     region_list: list,
     bin_size: int = 10000,
     palette: list | None = None,
-    ylim: tuple = (0, 1),
+    ylim: tuple | None = (0, 1),
     max_frames: int | None = None,
     xlabel: str = "Frames",
     filename_suffix: str = "",
@@ -1517,10 +1645,12 @@ def plot_all_regions_usage_over_bins(
         percentage points (e.g. 100 // n_bins) for a percentage-based one.
     palette : list or dict
         Optional Seaborn color palette for genotypes.
-    ylim : tuple
+    ylim : tuple | None
         Y-axis limits -- (0, 1) by default; narrow it (e.g. (0, 0.3)) to zoom
         in on low-usage regions, or widen past 1 isn't meaningful (usage is a
-        proportion) but the max can be lowered to crop outlier spikes.
+        proportion) but the max can be lowered to crop outlier spikes. None
+        starts at 0 and fits the top to the data (handy when the number of
+        zones, and so the typical share, varies between zone sets).
     max_frames : int | None
         Drop bins beyond this value (compared against the 'bin' column, i.e.
         bin_size * bin_index) before plotting -- lets you crop out later bins
@@ -1552,6 +1682,7 @@ def plot_all_regions_usage_over_bins(
 
     legend_handles = None
     legend_labels = None
+    _recorded_regions = []
 
     for idx, region in enumerate(region_list):
         ax = axes[idx]
@@ -1560,6 +1691,10 @@ def plot_all_regions_usage_over_bins(
         region_data = compute_region_usage_over_bins(pivot_dict, df_all_csv, region, bin_size)
         if max_frames is not None:
             region_data = region_data[region_data["bin"] <= max_frames]
+        # Tidy (one "region" column, not one column per region) so every
+        # region in this loop accumulates into the same sheet instead of
+        # each needing its own.
+        _recorded_regions.append(region_data.rename(columns={region: "proportion"}).assign(region=region))
 
         # Plot with seaborn
         plot = sns.pointplot(
@@ -1567,6 +1702,7 @@ def plot_all_regions_usage_over_bins(
             x="bin",
             y=region,
             hue="genotype",
+            hue_order=genotype_order(region_data["genotype"]),
             errorbar="se",
             palette=palette,
             capsize=0.15,
@@ -1576,7 +1712,8 @@ def plot_all_regions_usage_over_bins(
         ax.set_title(REGION_NAMES.get(region, region), fontsize=14, weight="bold")
         ax.set_xlabel(xlabel, fontsize=12)
         ax.set_ylabel("Usage Proportion", fontsize=12)
-        ax.set_ylim(ylim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
         ax.tick_params(labelsize=10)
 
         # Store legend handles/labels from the first plot only
@@ -1590,8 +1727,16 @@ def plot_all_regions_usage_over_bins(
     for j in range(n_regions, len(axes)):
         fig.delaxes(axes[j])
 
+    if ylim is None:
+        # Fit the shared y-axis to every panel's points + error bars, once
+        # all are drawn (setting a limit earlier would freeze it at the
+        # first panel's range), starting at 0
+        values = [np.asarray(line.get_ydata(), dtype=float) for ax in axes[:n_regions] for line in ax.lines]
+        top = max((np.nanmax(v) for v in values if np.isfinite(v).any()), default=1.0)
+        axes[0].set_ylim(0, top * 1.05)
+
     # Shared legend outside to the right
-    fig.legend(
+    shared_legend = fig.legend(
         handles=legend_handles,
         labels=legend_labels,
         loc="center right",
@@ -1600,6 +1745,7 @@ def plot_all_regions_usage_over_bins(
         title_fontsize=13,
         frameon=True,
     )
+    append_n_to_legend(shared_legend, group_sample_sizes(df_all_csv, "genotype"))
 
     plt.suptitle("Proportion of Region Usage Across Time Bins", fontsize=18, weight="bold")
     plt.tight_layout(rect=[0, 0, 0.88, 0.95])  # Leave space for external legend
@@ -1608,11 +1754,19 @@ def plot_all_regions_usage_over_bins(
     if save_fig:
         save_path = Path(config["project_path_full"]) / figures_dirname / f"all_regions_prop_usage{filename_suffix}.pdf"
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "sessions_x_bins_x_regions" -- one row per session per bin per
+        # region, shared with Plot 3's own per-region stats cell instead of
+        # a separate narrow sheet (and NOT df_all_csv, which is the raw
+        # per-frame dataframe, too large and not a session-level summary).
+        source_data.record(pd.concat(_recorded_regions, ignore_index=True))
+        source_data.flush("sessions_x_bins_x_regions", figure=save_path.stem)
         plt.savefig(save_path, dpi=300, bbox_inches="tight")
         print(f"Figure saved at: {save_path}")
 
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     if return_fig:
         return fig
@@ -1697,10 +1851,97 @@ def run_region_usage_stats_fdr(
                 bin_results.append({"bin": b, "group1": g1, "group2": g2, "pval": pval})
 
         df_stats = pd.DataFrame(bin_results)
-        reject, pvals_corrected, _, _ = multipletests(df_stats["pval"], method="fdr_bh")
-        df_stats["pval_fdr"] = pvals_corrected
-        df_stats["significant"] = reject
+        # Exclude NaN p-values (a degenerate zero-variance pair) from the FDR
+        # correction basis -- otherwise one poisons every other row's pval_fdr.
+        df_stats["pval_fdr"] = np.nan
+        df_stats["significant"] = False
+        valid = df_stats["pval"].notna()
+        if valid.any():
+            reject, pvals_corrected, _, _ = multipletests(df_stats.loc[valid, "pval"], method="fdr_bh")
+            df_stats.loc[valid, "pval_fdr"] = pvals_corrected
+            df_stats.loc[valid, "significant"] = reject
         print(df_stats.to_string(index=False))
         return df_stats
     except Exception as e:
         print("Pairwise t-test error:", e)
+
+
+# --------------- Zone pivots (genotype/zone-relabeled region occupancy) --------------#
+def build_zone_pivot(
+    zone_names: list,
+    zones: dict,
+    df: pd.DataFrame,
+    lower_lim: int,
+    upper_lim: int,
+    difference: int,
+) -> tuple[pd.DataFrame, dict]:
+    """Relabel a dataframe by the given zones and build a matching pivot_dict.
+
+    zone_names : list of zone names (keys of `zones`) to include -- zones may
+        overlap (share grid cells); a shared cell's frames are counted
+        toward every zone it belongs to (not just one), by building each
+        zone's rows independently instead of a single cell->zone lookup.
+    zones : zone_name -> list of grid cell numbers, e.g. the project
+        notebook's own ZONES -- passed in explicitly (not imported) so this
+        function, and any cache keyed on its arguments, stays correct for a
+        different project's zone layout.
+    df : dataframe to build from. Pass the output of build_genotype_groups()
+        to scope to a particular genotype set.
+    lower_lim, upper_lim, difference : passed straight through to
+        generate_region_heatmap_pivots().
+    """
+    zones_subset = {name: zones[name] for name in zone_names}
+    labeled = []
+    for zone, cells in zones_subset.items():
+        subset = df[df["grid_number"].isin(cells)].copy()
+        subset["region"] = zone
+        labeled.append(subset)
+    # Concat WITHOUT ignore_index, then sort_index to restore each session's
+    # original chronological row order -- generate_region_heatmap_pivots() bins
+    # by row POSITION (not by timestamp), so losing that order would make
+    # each "bin" land almost entirely inside one zone's block instead of a
+    # real time window, producing near-0/near-1 density artifacts.
+    df_zones = (
+        pd.concat(labeled).sort_index(kind="stable").reset_index(drop=True)
+        if labeled else df.iloc[0:0].assign(region=[])
+    )
+
+    pivot_dict_zones = generate_region_heatmap_pivots(
+        df=df_zones,
+        lower_lim=lower_lim,
+        upper_lim=upper_lim,
+        difference=difference,
+        region_columns=zone_names,
+        region_lengths={zone: len(cells) for zone, cells in zones_subset.items()},
+    )
+    pivot_dict_zones = subset_pivot_dict_sessions(pivot_dict_zones, df_zones)
+    return df_zones, pivot_dict_zones
+
+
+def build_zone_pivot_by_percentage(
+    zone_names: list,
+    zones: dict,
+    df: pd.DataFrame,
+    n_bins: int = 5,
+) -> dict:
+    """Like build_zone_pivot(), but bins each session by percentage of its own
+    total frame count (first 20%, next 20%, ... for n_bins=5) instead of a
+    fixed absolute frame range -- every session contributes to every bin,
+    comparing the same fraction of session progress instead of the same raw
+    frame count (which cuts short sessions out of later bins entirely).
+
+    zone_names : list of zone names (keys of `zones`) to include
+    zones : zone_name -> list of grid cell numbers, passed in explicitly so
+        this stays correct for a different project's zone layout.
+    df : RAW (not zone-filtered) dataframe to build from -- unlike
+        build_zone_pivot(), no pre-filtering to zone cells is needed since
+        region membership is computed internally per percentage segment.
+    n_bins : number of equal-percentage segments per session (default 5 -> 20% each)
+    """
+    zones_subset = {name: zones[name] for name in zone_names}
+    return generate_region_heatmap_pivots_by_percentage(
+        df=df,
+        zones=zones_subset,
+        region_columns=zone_names,
+        n_bins=n_bins,
+    )

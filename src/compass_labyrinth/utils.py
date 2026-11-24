@@ -40,6 +40,7 @@ def load_project(project_path: Path | str) -> tuple[dict, pd.DataFrame]:
 
     metadata_df = pd.read_csv(metadata_file_path)
 
+    register_genotype_sets(config.get("genotype_sets"))
     return (config, metadata_df)
 
 
@@ -214,3 +215,117 @@ def update_dataset_with_grid_positions(
     )
 
     return ds
+
+
+def group_sample_sizes(df: pd.DataFrame, group_col: str, session_col: str = "session") -> dict:
+    """{group label: number of unique sessions} for each value of group_col in df.
+
+    Pass the result to append_n_to_legend() so a figure's legend states each
+    group's N (sessions contributing to the dataframe actually being
+    plotted, not the whole project), e.g. "E3" -> "E3 (n=12)".
+    """
+    return df.groupby(group_col)[session_col].nunique().to_dict()
+
+
+def append_n_to_legend(legend, *counts: dict) -> None:
+    """Appends " (n=<count>)" to an existing legend's text labels.
+
+    legend : a matplotlib Legend object -- e.g. ax.get_legend(), the return
+        value of plt.legend()/ax.legend()/fig.legend(), or a seaborn
+        FacetGrid's `._legend` attribute. None is a no-op, so call sites
+        that may not have a legend don't need their own guard.
+    *counts : one or more {label: n} dicts from group_sample_sizes() -- pass
+        several when one legend mixes groupings (e.g. hue=genotype and
+        style=sex). A label matching none of them (a seaborn section header
+        in a combined hue+style legend, or an unrelated label like
+        "Excluded") is left as-is.
+
+    Mutates the legend's already-rendered Text objects directly, so it
+    works regardless of how the legend was built without needing to redo
+    its original kwargs (loc, frameon, fontsize, title, ...).
+    """
+    if legend is None:
+        return
+    merged: dict = {}
+    for c in counts:
+        merged.update(c)
+    for text in legend.get_texts():
+        label = text.get_text()
+        if label in merged:
+            text.set_text(f"{label} (n={merged[label]})")
+
+
+_GENOTYPE_SETS: dict = {}
+
+
+def register_genotype_sets(genotype_sets: dict | None) -> None:
+    """Remember config.yaml's genotype_sets, so genotype_order() can put any
+    figure's groups in their configured order (load_project() and
+    build_genotype_groups() call this)."""
+    if genotype_sets:
+        _GENOTYPE_SETS.update(genotype_sets)
+
+
+def genotype_order(labels) -> list:
+    """The genotype labels present in a figure, in config.yaml order: the
+    order of the smallest genotype_sets entry containing all of them (e.g.
+    WT, NLF / APOE3, APOE4 / E3, E3NLF, E4, E4NLF). Labels in no set, or
+    nothing registered, fall back to alphabetical. Pass as seaborn hue_order."""
+    present = [str(l) for l in dict.fromkeys(labels) if pd.notna(l)]
+    fits = [list(m) for m in _GENOTYPE_SETS.values() if set(present) <= set(m)]
+    if not fits:
+        return sorted(present)
+    order = min(fits, key=len)
+    return [g for g in order if g in present]
+
+
+def build_genotype_groups(df: pd.DataFrame, set_name: str, genotype_sets: dict) -> pd.DataFrame:
+    """Relabel a dataframe's `genotype` column per genotype_sets[set_name].
+
+    Rows whose raw genotype isn't in any label's list are dropped; rows that
+    are get `genotype` replaced by the label (e.g. E3 and E3NLF both become
+    "APOE3" for set_name="apoe_pair"). Works the same whether the set keeps
+    genotypes separate ("pair") or pools several into one label ("wt_nlf").
+
+    df : dataframe with a `genotype` column
+    set_name : key of genotype_sets to use
+    genotype_sets : set_name -> {label: [raw genotype strings]}, e.g. the
+        project notebook's own GENOTYPE_SETS -- passed in explicitly (not
+        imported) so this function, and any cache keyed on its arguments,
+        stays correct for a different project's genotype labels.
+    """
+    register_genotype_sets(genotype_sets)
+    mapping = genotype_sets[set_name]
+    genotype_lookup = {raw: label for label, raw_genotypes in mapping.items() for raw in raw_genotypes}
+    df_grouped = df[df["genotype"].isin(genotype_lookup)].copy()
+    df_grouped["genotype"] = df_grouped["genotype"].map(genotype_lookup)
+    return df_grouped
+
+
+def build_zone_column(
+    df: pd.DataFrame,
+    zone_names: list,
+    zones: dict,
+    column_name: str = "custom_zone",
+) -> pd.DataFrame:
+    """Add a `column_name` column labeling each row's zone by `zones` membership.
+
+    zone_names : list of zone names (keys of `zones`) to include -- zones may
+        overlap (share grid cells); a shared cell's rows are duplicated (once
+        per zone it belongs to) rather than assigned to just one.
+    zones : zone_name -> list of grid cell numbers, e.g. the project
+        notebook's own ZONES -- passed in explicitly so this function stays
+        correct for a different project's zone layout.
+    column_name : name of the new column to add (default "custom_zone")
+    """
+    zones_subset = {name: zones[name] for name in zone_names}
+    labeled = []
+    for zone, cells in zones_subset.items():
+        subset = df[df["grid_number"].isin(cells)].copy()
+        subset[column_name] = zone
+        labeled.append(subset)
+    if not labeled:
+        return df.iloc[0:0].assign(**{column_name: []})
+    # Concat WITHOUT ignore_index, then sort_index to restore each session's
+    # original chronological row order.
+    return pd.concat(labeled).sort_index(kind="stable").reset_index(drop=True)

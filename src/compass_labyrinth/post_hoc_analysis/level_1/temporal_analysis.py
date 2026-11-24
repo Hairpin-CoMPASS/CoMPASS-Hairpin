@@ -12,10 +12,14 @@ import seaborn as sns
 from pathlib import Path
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
+from matplotlib.lines import Line2D
 from statistics import median
 import warnings
 
 from compass_labyrinth.constants import NODE_TYPE_MAPPING
+from compass_labyrinth.utils import group_sample_sizes, append_n_to_legend, genotype_order
+
+import compass_labyrinth.source_data as source_data
 
 
 warnings.filterwarnings("ignore")
@@ -207,13 +211,13 @@ def build_genotype_zone_palette(
     deci_df: pd.DataFrame,
     node_type_col: str = "node_type",
     genotype_col: str = "genotype",
-    zone_palette: str = "tab10",
+    genotype_palette: str = "tab10",
 ) -> dict:
     """
-    Build a {genotype_node_type: color} palette where each zone gets its own
-    base hue and genotypes within that zone are distinguished by shades
-    (light -> dark) of that same hue, instead of an arbitrary flat color per
-    genotype/zone combination.
+    Build a {genotype_node_type: color} palette with one color per genotype,
+    the same in every zone. Zones are told apart by marker and line style
+    instead (see plot_node_state_median_curve()), which stays readable with 4
+    genotypes where shades of one hue per zone did not.
 
     Parameters
     -----------
@@ -221,12 +225,11 @@ def build_genotype_zone_palette(
         Output of compute_node_state_medians_over_time() -- must have
         node_type_col and genotype_col columns.
     node_type_col : str
-        Column identifying each zone (one base hue per unique value).
+        Column identifying each zone.
     genotype_col : str
-        Column identifying each genotype (one shade per unique value, within
-        a zone's hue).
-    zone_palette : str
-        Named qualitative palette to draw zones' base hues from.
+        Column identifying each genotype (one color per unique value).
+    genotype_palette : str
+        Named qualitative palette to draw genotype colors from.
 
     Returns
     --------
@@ -234,19 +237,61 @@ def build_genotype_zone_palette(
         {f"{genotype} , {node_type}": color} -- keys match the
         'genotype_node_type' column produced by compute_node_state_medians_over_time().
     """
-    zones = sorted(deci_df[node_type_col].unique())
-    base_colors = sns.color_palette(zone_palette, n_colors=len(zones))
-    palette = {}
-    for zone, base_color in zip(zones, base_colors):
-        genotypes = sorted(deci_df.loc[deci_df[node_type_col] == zone, genotype_col].unique())
-        # light_palette runs light -> saturated; drop only the lightest shade
-        # (too close to white to read) so the rest span as wide a range as
-        # possible -- keeping the fully-saturated base_color as the darkest
-        # genotype maximizes contrast between genotypes sharing this hue.
-        shades = sns.light_palette(base_color, n_colors=len(genotypes) + 1)[1:]
-        for genotype, shade in zip(genotypes, shades):
-            palette[f"{genotype} , {zone}"] = shade
-    return palette
+    genotypes = genotype_order(deci_df[genotype_col])
+    colors = dict(zip(genotypes, sns.color_palette(genotype_palette, n_colors=len(genotypes))))
+    pairs = deci_df[[genotype_col, node_type_col]].drop_duplicates()
+    return {f"{g} , {z}": colors[g] for g, z in zip(pairs[genotype_col], pairs[node_type_col])}
+
+
+ZONE_MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
+ZONE_LINESTYLES = ["-", "--", ":", "-."]
+
+
+def _zone_styles(deci_df: pd.DataFrame, palette) -> dict | None:
+    """hue_order/markers/linestyles for a genotype x zone curve plot: one
+    marker + line style per zone, colors (from palette) per genotype, plus the
+    legend handles for a separate Genotype and Zone legend. None if deci_df
+    lacks the genotype/node_type columns or palette isn't a dict."""
+    if not isinstance(palette, dict) or not {"genotype", "node_type"} <= set(deci_df.columns):
+        return None
+    zones = list(dict.fromkeys(deci_df["node_type"]))
+    genotypes = genotype_order(deci_df["genotype"])
+    hue_order = [f"{g} , {z}" for z in zones for g in genotypes if f"{g} , {z}" in set(deci_df["genotype_node_type"])]
+    zone_marker = {z: ZONE_MARKERS[i % len(ZONE_MARKERS)] for i, z in enumerate(zones)}
+    zone_ls = {z: ZONE_LINESTYLES[i % len(ZONE_LINESTYLES)] for i, z in enumerate(zones)}
+    n = group_sample_sizes(deci_df, "genotype")
+    genotype_color = {k.split(" , ")[0]: c for k, c in palette.items()}
+    genotype_handles = [
+        Line2D([], [], color=genotype_color[g], linestyle="-", linewidth=3, label=f"{g} (n={n.get(g, 0)})")
+        for g in genotypes
+    ]
+    zone_handles = [
+        Line2D([], [], color="0.3", marker=zone_marker[z], linestyle=zone_ls[z], linewidth=1.4,
+               markerfacecolor="white", markeredgewidth=1.4, label=z)
+        for z in zones
+    ]
+    return {
+        "hue_order": hue_order,
+        "markers": [zone_marker[k.split(" , ")[1]] for k in hue_order],
+        "linestyles": [zone_ls[k.split(" , ")[1]] for k in hue_order],
+        "genotype_handles": genotype_handles,
+        "zone_handles": zone_handles,
+    }
+
+
+def _fit_ylim(df: pd.DataFrame, value_col: str, hue: str, figure_ylimit: tuple) -> tuple:
+    """figure_ylimit, widened (never narrowed) to keep every point's mean +/- SE
+    error bar inside the axes, with 5% headroom."""
+    grouped = df.groupby(["time_bins", hue])[value_col]
+    mean, se = grouped.mean(), grouped.sem().fillna(0)
+    lo, hi = figure_ylimit
+    data_lo, data_hi = (mean - se).min(), (mean + se).max()
+    pad = 0.05 * (data_hi - data_lo) if data_hi > data_lo else 0
+    if pd.notna(data_lo) and data_lo < lo:
+        lo = data_lo - pad
+    if pd.notna(data_hi) and data_hi > hi:
+        hi = data_hi + pad
+    return (lo, hi)
 
 
 def plot_node_state_median_curve(
@@ -261,6 +306,7 @@ def plot_node_state_median_curve(
     filename_stem: str | None = None,
     filename_suffix: str = "",
     figures_dirname: str = "figures",
+    dodge: float = 0.45,
     save_fig: bool = True,
     show_fig: bool = True,
     return_fig: bool = False,
@@ -280,6 +326,9 @@ def plot_node_state_median_curve(
         multiple categories render in the same color), or a
         {genotype_node_type: color} dict, e.g. from build_genotype_zone_palette()
         to color by zone with genotype-distinguishing shades.
+    dodge : float
+        Horizontal spread of the curves within each time bin (fraction of the
+        bin spacing), so overlapping points and error bars stay apart; 0 = aligned.
     figure_ylimit : tuple
         Tuple like (0, 0.6) for y-axis limits
     fig_title : str | None
@@ -314,6 +363,15 @@ def plot_node_state_median_curve(
         Seaborn FacetGrid object
     """
 
+    # Color = genotype, marker + line style = zone (when deci_df has both)
+    styles = _zone_styles(deci_df, palette)
+    style_kws = {k: styles[k] for k in ("hue_order", "markers", "linestyles")} if styles else {}
+    if styles:
+        # Thinner lines, hollow markers and lighter error bars, so the dash
+        # pattern and marker shape (the zone) stay readable
+        style_kws.update(linewidth=1.4, markersize=6, markerfacecolor="white", markeredgewidth=1.4)
+    err_kws = {"linewidth": 0.9, "alpha": 0.45} if styles else {"linewidth": 1.5}
+
     g = sns.catplot(
         data=deci_df,
         x="time_bins",
@@ -323,23 +381,38 @@ def plot_node_state_median_curve(
         kind="point",
         errorbar="se",
         capsize=0.15,
-        err_kws={"linewidth": 1.5},
+        dodge=dodge,
+        err_kws=err_kws,
         palette=palette,
         aspect=1.9,
-        legend=True,  # auto legend
+        legend=styles is None,
+        **style_kws,
     )
 
-    g.set(ylim=figure_ylimit)
+    g.set(ylim=_fit_ylim(deci_df, value_col, "genotype_node_type", figure_ylimit))
     g.set_xlabels("Time/Frame Bins", size=12)
     g.set_ylabels(metric_label if metric_label else "Median Probability of HMM state", size=12)
     g.set_xticklabels(rotation=45, size=9, color="black")
     g.set_yticklabels(size=9, color="black")
 
+    if styles:
+        # Two short legends instead of one entry per genotype x zone pair
+        ax = g.axes.flat[-1]
+        genotype_legend = ax.legend(
+            handles=styles["genotype_handles"], title="Genotype", loc="upper left",
+            bbox_to_anchor=(1.02, 1), frameon=True,
+        )
+        ax.add_artist(genotype_legend)
+        ax.legend(
+            handles=styles["zone_handles"], title="Zone", loc="upper left",
+            bbox_to_anchor=(1.02, 0.45), frameon=True, handlelength=3,
+        )
     # Adjust legend appearance (not manual mapping!)
-    if g._legend:
+    elif g._legend:
         g._legend.set_bbox_to_anchor((1.02, 1))
         g._legend.set_frame_on(True)
         g._legend.set_title("")
+        append_n_to_legend(g._legend, group_sample_sizes(deci_df, "genotype_node_type"))
     # suptitle (not plt.title) -- plt.title only labels a single subplot when
     # faceted with col=, leaving the rest of the figure untitled
     g.figure.suptitle(fig_title, fontsize=15)
@@ -354,12 +427,20 @@ def plot_node_state_median_curve(
             / f"{stem}{filename_suffix}.pdf"
         )
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # "sessions_x_bins_x_zones" -- one row per session per time bin per
+        # zone, shared across every step plotting this same shape (state
+        # probability and velocity, overlaid or one-page-per-zone) instead
+        # of each getting its own sheet.
+        source_data.record(deci_df)
+        source_data.flush("sessions_x_bins_x_zones", figure=save_path.stem)
         fig.savefig(save_path, bbox_inches="tight", dpi=300)
         print(f"Figure saved at: {save_path}")
 
     # Show figure
     if show_fig:
         plt.show()
+    elif not return_fig:
+        plt.close()  # not shown -> don't let Jupyter display it at cell end
 
     # Return figure
     if return_fig:
@@ -378,6 +459,7 @@ def plot_node_state_median_curves_by_zone(
     filename_stem: str | None = None,
     filename_suffix: str = "",
     figures_dirname: str = "figures",
+    dodge: float = 0.25,
     save_fig: bool = True,
     show_fig: bool = True,
 ) -> None:
@@ -428,6 +510,11 @@ def plot_node_state_median_curves_by_zone(
             / f"{stem}{filename_suffix}.pdf"
         )
         save_path.parent.mkdir(parents=True, exist_ok=True)
+        # Not recorded here -- the notebook always calls this with the exact
+        # same deci_df plot_node_state_median_curve() already recorded under
+        # "sessions_x_bins_x_zones" (same data, just drawn as one page per
+        # zone instead of overlaid); recording it again would duplicate
+        # every row in that sheet.
         pdf = PdfPages(save_path)
 
     for zone in zones:
@@ -451,13 +538,14 @@ def plot_node_state_median_curves_by_zone(
             kind="point",
             errorbar="se",
             capsize=0.15,
+            dodge=dodge,
             err_kws={"linewidth": 1.5},
             palette=zone_palette,
             aspect=1.9,
             legend=True,
         )
 
-        g.set(ylim=figure_ylimit)
+        g.set(ylim=_fit_ylim(zone_df, value_col, "genotype", figure_ylimit))
         g.set_xlabels("Time/Frame Bins", size=12)
         g.set_ylabels(metric_label if metric_label else "Median Probability of HMM state", size=12)
         g.set_xticklabels(rotation=45, size=9, color="black")
@@ -467,6 +555,7 @@ def plot_node_state_median_curves_by_zone(
             g._legend.set_bbox_to_anchor((1.02, 1))
             g._legend.set_frame_on(True)
             g._legend.set_title("")
+            append_n_to_legend(g._legend, group_sample_sizes(zone_df, "genotype"))
 
         g.figure.suptitle(f"{fig_title} -- {zone}" if fig_title else zone, fontsize=15)
         g.figure.tight_layout()
